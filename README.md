@@ -21,8 +21,6 @@
 - [API 参考](#api-参考)
 - [项目结构](#项目结构)
 - [设计决策](#设计决策)
-- [常见问题](#常见问题)
-
 ---
 
 ## 项目简介
@@ -122,17 +120,17 @@ datasets>=3.0.0             # Ragas 依赖
 
 ### 必填
 
-| 服务 | 用途 | 注册/获取地址 | 免费额度 |
-|------|------|-------------|---------|
-| **DeepSeek** | LLM 生成 + 评估 | https://platform.deepseek.com/api_keys | 注册即送 500 万 token |
-| **MySQL** | 数据持久化 | 本地安装，用自己设的密码 | 免费 |
+| 服务 | 用途 | 注册/获取地址 |
+|------|------|-------------|
+| **DeepSeek** | LLM 生成 + 评估 | https://platform.deepseek.com/api_keys |
+| **MySQL** | 数据持久化 | 本地安装，用自己设的密码 |
 
 ### 推荐（启用 RAGFlow）
 
-| 服务 | 用途 | 注册/获取地址 | 费用 |
-|------|------|-------------|------|
-| **RAGFlow** | 文档解析 + 混合检索 | 本地 Docker 部署，API Key 在 RAGFlow 管理后台生成 | 免费（本地运行） |
-| **DashScope（阿里云）** | Embedding 向量化 | https://dashscope.aliyun.com/ → API-KEY 管理 | 有免费额度 |
+| 服务 | 用途 | 注册/获取地址 |
+|------|------|-------------|
+| **RAGFlow** | 文档解析 + 混合检索 | 本地 Docker 部署，API Key 在 RAGFlow 管理后台生成 |
+| **DashScope（阿里云）** | Embedding 向量化 | https://dashscope.aliyun.com/ → API-KEY 管理 |
 
 ### 可选（降级路径）
 
@@ -191,8 +189,6 @@ USE_RAGFLOW=true
 DASHSCOPE_API_KEY=sk-你的阿里云Key
 ```
 
-> ⚠️ **`.env` 文件包含密钥，已加入 `.gitignore`，不会被提交到 GitHub。**
-
 ---
 
 ## 第三步：安装依赖
@@ -200,12 +196,6 @@ DASHSCOPE_API_KEY=sk-你的阿里云Key
 ```bash
 # 确保虚拟环境已激活（终端前面应该有 (.venv) 字样）
 pip install -r requirements.txt
-```
-
-如果下载慢，使用清华镜像：
-
-```bash
-pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
 ---
@@ -483,50 +473,6 @@ MP/
 | 检索优化 | LLM 关键词提取 | 短查询（如"有多少表"）直接搜索命中率低，先拆成关键词再检索 |
 | 并发策略 | ThreadPoolExecutor(3) | I/O 密集型 LLM 调用，3 并发在速度和 API 限流之间取平衡 |
 | 降级设计 | 本地解析 + Qdrant | RAGFlow 离线时自动切换，系统仍可用 |
-
----
-
-## 常见问题
-
-### Q: 启动后前端页面空白？
-
-A: 确保已执行 `npm run build`，后端会自动托管 `frontend/dist/` 目录下的静态文件。
-
-### Q: 上传文档后一直显示"处理中"？
-
-A: 检查 RAGFlow 是否正常运行：`docker ps | grep ragflow`。如果 RAGFlow 未启动，将 `.env` 中的 `USE_RAGFLOW=false` 即可走本地降级路径。
-
-### Q: 问答返回"文档中未找到相关信息"？
-
-A: 可能原因：
-1. 文档还在解析中，等待状态变为"就绪"后再提问
-2. 问题太短（如"表"），系统会自动提取关键词优化检索
-3. RAGFlow 向量索引问题，尝试在 RAGFlow 管理后台重新解析文档
-
-### Q: 评估结果每次都一样吗？
-
-A: 是的。评估使用 `temperature=0` + `seed=42` 固定随机性，同一数据始终得到相同分数。
-
-### Q: 评估很慢怎么办？
-
-A: 已经做了优化：
-- 增量评估：已有评分的条目自动跳过
-- 并发执行：3 个样本同时评估
-- 轻量模型：使用 deepseek-v4-flash 而非 v4-pro
-- 可以在前端设置 `max_samples` 限制评估数量
-
-### Q: 支持哪些文档格式？
-
-A: RAGFlow 在线时支持 PDF/Word/Excel/PPT/图片/TXT/Markdown/HTML/CSV 等。降级模式仅支持 PDF/Word/TXT。
-
-### Q: 如何更换 LLM 模型？
-
-A: 编辑 `.env`：
-```ini
-DEEPSEEK_V4_PRO_MODEL=deepseek-v4-pro    # 生成用
-DEEPSEEK_V4_MODEL=deepseek-v4-flash      # 评估用
-```
-任何兼容 OpenAI SDK 的模型都可以使用（如 OpenAI GPT-4、通义千问等）。
 
 ---
 
