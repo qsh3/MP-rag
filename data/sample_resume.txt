@@ -1,0 +1,31 @@
+张三
+手机：13800001111 | 邮箱：zhangsan@example.com | 3年开发经验
+
+技能：
+Java, Spring Boot, MySQL, Redis, Git, Linux, Docker, HTML, CSS, JavaScript
+
+工作经历：
+
+2022-至今  ABC科技有限公司  Java开发工程师
+- 负责公司内部OA系统的开发和维护
+- 参与用户管理模块的设计与实现
+- 负责系统日常bug修复和性能优化
+- 参与代码评审工作
+
+2021-2022  上海XYZ信息科技有限公司  初级Java开发
+- 参与电商后台系统的开发工作
+- 负责接口文档编写
+
+项目经历：
+
+企业OA管理系统
+- 基于Spring Boot的企业内部管理系统
+- 包含用户管理、审批流程、报表统计
+- 使用了Spring Boot + MySQL + Redis
+
+电商后台管理系统
+- 电商平台后台管理
+- 使用了Spring Boot + Vue.js
+
+教育经历：
+上海大学 计算机科学与技术 本科 2021
