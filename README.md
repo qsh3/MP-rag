@@ -32,6 +32,20 @@
 
 除此之外，还内置了一套**自动化评估系统**，用另一个 LLM 给回答质量打分，帮你持续监控 RAG 管道的好坏。
 
+### 界面预览
+
+| 知识库管理 | 文档管理 |
+|------------|----------|
+| ![知识库管理](docs/images/dashboard.png) | ![知识库页面](docs/images/knowledge-base.png) |
+
+| 智能问答 | RAGAS 评估报告 |
+|---------|---------------|
+| ![智能问答](docs/images/qa-chat.png) | ![评估报告](docs/images/eval-report.png) |
+
+| RAGFlow 文档引擎 |
+|-----------------|
+| ![RAGFlow控制台](docs/images/ragflow-console.png) |
+
 ### 核心技术组件
 
 | 组件 | 作用 | 官方地址 |
