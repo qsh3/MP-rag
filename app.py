@@ -33,6 +33,20 @@ async def lifespan(app: FastAPI):
     rag = get_client()
     print("  RAGFlow: %s" % ("已连接" if rag.available else "不可用（使用降级模式）"))
 
+    # 检查三家 LLM 厂商配置
+    from config import (
+        DEEPSEEK_API_KEY, DASHSCOPE_API_KEY, KIMI_API_KEY,
+        EVAL_MODEL, REVIEW_MODEL,
+    )
+    print("  Q&A (DeepSeek):     %s" % ("已配置" if DEEPSEEK_API_KEY else "[WARN] 未配置"))
+    print("  评估 (DashScope/Qwen): %s (模型: %s)" % ("已配置" if DASHSCOPE_API_KEY else "[WARN] 未配置", EVAL_MODEL))
+    print("  复审 (Kimi):           %s (模型: %s)" % ("已配置" if KIMI_API_KEY else "[WARN] 未配置", REVIEW_MODEL))
+
+    if not KIMI_API_KEY:
+        print("  [WARN] KIMI_API_KEY 未配置，评估复审功能将不可用")
+    if not DASHSCOPE_API_KEY:
+        print("  [WARN] DASHSCOPE_API_KEY 未配置，评估将使用 DeepSeek（可能存在自评估偏差）")
+
     # 初始化 MySQL 表
     try:
         from models.db_models import init_db
@@ -76,15 +90,21 @@ def health_check():
 
     # DeepSeek 检查
     try:
-        from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL
+        from config import DEEPSEEK_API_KEY, DASHSCOPE_API_KEY, KIMI_API_KEY
         deepseek_ok = bool(DEEPSEEK_API_KEY)
+        dashscope_ok = bool(DASHSCOPE_API_KEY)
+        kimi_ok = bool(KIMI_API_KEY)
     except Exception:
         deepseek_ok = False
+        dashscope_ok = False
+        kimi_ok = False
 
     return {
         "status": "healthy",
         "ragflow": "connected" if rag.ping() else "unavailable",
         "deepseek": "ok" if deepseek_ok else "unconfigured",
+        "dashscope": "ok" if dashscope_ok else "unconfigured",
+        "kimi": "ok" if kimi_ok else "unconfigured",
         "mysql": "configured",
         "qdrant": "configured",
     }

@@ -103,6 +103,15 @@ class EvaluationRecord(Base):
     answer_relevancy = Column(Float, nullable=True)
     context_precision = Column(Float, nullable=True)
     context_recall = Column(Float, nullable=True)
+    # 复审相关字段（跨厂商复审：Kimi 复审 DashScope 的评分）
+    reviewed = Column(Integer, default=0)  # 0=未复审, 1=已复审, -1=复审失败
+    review_faithfulness = Column(Float, nullable=True)
+    review_answer_relevancy = Column(Float, nullable=True)
+    review_context_precision = Column(Float, nullable=True)
+    review_reason = Column(Text, nullable=True)
+    review_changes = Column(Text, nullable=True)  # JSON 数组
+    eval_raw = Column(Text, nullable=True)  # JSON: 评估者完整推理
+    review_raw = Column(Text, nullable=True)  # JSON: 复审者原始输出
     created_at = Column(String(32), default=now_str)
 
 
@@ -157,5 +166,30 @@ def init_db():
             conn.commit()
     except Exception:
         pass  # 列已存在则忽略
+
+    # 兼容旧表：添加 review 相关列
+    try:
+        engine = get_engine()
+        with engine.connect() as conn:
+            review_migrations = [
+                ("reviewed", "INTEGER DEFAULT 0"),
+                ("review_faithfulness", "FLOAT"),
+                ("review_answer_relevancy", "FLOAT"),
+                ("review_context_precision", "FLOAT"),
+                ("review_reason", "TEXT"),
+                ("review_changes", "TEXT"),
+                ("eval_raw", "TEXT"),
+                ("review_raw", "TEXT"),
+            ]
+            for col_name, col_type in review_migrations:
+                try:
+                    conn.execute(text(
+                        f"ALTER TABLE evaluation_records ADD COLUMN {col_name} {col_type}"
+                    ))
+                    conn.commit()
+                except Exception:
+                    pass  # 列已存在则忽略
+    except Exception:
+        pass
 
     print("[MySQL] 数据库和表已初始化")

@@ -12,10 +12,10 @@ load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 LLM_MODEL = os.getenv("DEEPSEEK_V4_PRO_MODEL", "") or os.getenv("DEEPSEEK_FREE_MODEL", "deepseek-chat")
-EVAL_MODEL = os.getenv("DEEPSEEK_V4_MODEL", "deepseek-v4-flash")  # 评估用轻量模型，降低成本
+EVAL_MODEL = os.getenv("EVAL_MODEL", "qwen-plus")  # 评估用 DashScope，无严格并发限制
 LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "120"))
 
-# ── DashScope (阿里云 — Embedding + 视觉模型) ─────────────
+# ── DashScope (阿里云 — Embedding + 视觉模型 + 评估 LLM) ──
 DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", "")
 DASHSCOPE_BASE_URL = os.getenv("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
 EMBED_MODEL_TYPE = os.getenv("EMBED_MODEL_TYPE", "dashscope")
@@ -23,6 +23,12 @@ EMBED_MODEL_NAME = os.getenv("EMBED_MODEL_NAME", "text-embedding-v2")
 EMBED_API_KEY = os.getenv("EMBED_API_KEY", "") or DASHSCOPE_API_KEY
 EMBED_BASE_URL = os.getenv("EMBED_BASE_URL", "") or DASHSCOPE_BASE_URL
 QWEN_VL_MODEL = os.getenv("QWEN_FREE_MODEL", "qwen-vl-plus")
+QWEN_CHAT_MODEL = os.getenv("QWEN_CHAT_MODEL", "qwen-plus")  # 评估专用聊天模型
+
+# ── Kimi (Moonshot — 评估复审) ─────────────────────────────
+KIMI_API_KEY = os.getenv("KIMI_API_KEY", "")
+KIMI_BASE_URL = os.getenv("KIMI_BASE_URL", "https://api.moonshot.cn/v1")
+REVIEW_MODEL = os.getenv("REVIEW_MODEL", "kimi-k2.5")
 
 # ── RAGFlow（企业级文档引擎）───────────────────────────────
 RAGFLOW_BASE_URL = os.getenv("RAGFLOW_BASE_URL", "")

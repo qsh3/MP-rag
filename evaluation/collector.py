@@ -116,6 +116,13 @@ def get_evaluated_scores(kb_id: str, limit: int = 100) -> list[dict]:
                 "answer_relevancy": r.answer_relevancy,
                 "context_precision": r.context_precision,
                 "context_recall": r.context_recall,
+                # 复审字段
+                "reviewed": r.reviewed or 0,
+                "review_faithfulness": r.review_faithfulness,
+                "review_answer_relevancy": r.review_answer_relevancy,
+                "review_context_precision": r.review_context_precision,
+                "review_reason": r.review_reason or "",
+                "review_changes": _parse_json(r.review_changes),
                 "created_at": r.created_at or "",
             })
 
@@ -143,6 +150,60 @@ def get_pending_records(kb_id: str) -> list[dict]:
             }
             for r in records
         ]
+    finally:
+        session.close()
+
+
+def get_scored_details(kb_id: str, limit: int = 50) -> list[dict]:
+    """获取已有评分的评估详情（含评估推理和复审推理）"""
+    session = get_session()
+    try:
+        records = session.query(EvaluationRecord)\
+            .filter_by(kb_id=kb_id)\
+            .filter(EvaluationRecord.faithfulness.isnot(None))\
+            .order_by(EvaluationRecord.created_at.desc(), EvaluationRecord.id.desc())\
+            .limit(limit)\
+            .all()
+
+        results = []
+        for r in records:
+            results.append({
+                "id": r.id,
+                "question": r.question,
+                "answer": r.answer,
+                "contexts": _parse_json(r.contexts) if isinstance(r.contexts, str) else (r.contexts or []),
+                "faithfulness": r.faithfulness,
+                "answer_relevancy": r.answer_relevancy,
+                "context_precision": r.context_precision,
+                "reviewed": r.reviewed or 0,
+                "review_faithfulness": r.review_faithfulness,
+                "review_answer_relevancy": r.review_answer_relevancy,
+                "review_context_precision": r.review_context_precision,
+                "review_reason": r.review_reason or "",
+                "review_changes": _parse_json(r.review_changes),
+                "eval_raw": _parse_json(r.eval_raw),       # 评估者完整推理
+                "review_raw": _parse_json(r.review_raw),   # 复审者完整推理
+                "created_at": r.created_at or "",
+            })
+        return results
+    finally:
+        session.close()
+
+
+def clear_evaluation_records(kb_id: str) -> int:
+    """清空指定知识库的所有评估记录"""
+    session = get_session()
+    try:
+        count = session.query(EvaluationRecord)\
+            .filter_by(kb_id=kb_id)\
+            .delete()
+        session.commit()
+        print(f"[Collector] 已清空 kb={kb_id} 的 {count} 条评估记录")
+        return count
+    except Exception as e:
+        session.rollback()
+        print(f"[Collector] 清空评估记录失败: {e}")
+        raise e
     finally:
         session.close()
 

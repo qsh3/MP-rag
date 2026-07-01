@@ -9,23 +9,47 @@ from openai import OpenAI
 from config import (
     DEEPSEEK_API_KEY,
     DEEPSEEK_BASE_URL,
+    DASHSCOPE_API_KEY,
+    DASHSCOPE_BASE_URL,
+    KIMI_API_KEY,
+    KIMI_BASE_URL,
     LLM_MODEL,
     LLM_TIMEOUT,
 )
 
-# 全局单例
-_llm: OpenAI = None
+# 多厂商客户端缓存
+_clients: dict[str, OpenAI] = {}
 
 
-def get_llm() -> OpenAI:
-    global _llm
-    if _llm is None:
-        _llm = OpenAI(
-            api_key=DEEPSEEK_API_KEY,
-            base_url=DEEPSEEK_BASE_URL,
-            timeout=LLM_TIMEOUT,
-        )
-    return _llm
+def get_llm(provider: str = "deepseek") -> OpenAI:
+    """获取指定厂商的 LLM 客户端（单例缓存）
+
+    Args:
+        provider: 厂商名 — "deepseek" | "dashscope" | "kimi"
+    """
+    global _clients
+    if provider not in _clients:
+        if provider == "deepseek":
+            _clients[provider] = OpenAI(
+                api_key=DEEPSEEK_API_KEY,
+                base_url=DEEPSEEK_BASE_URL,
+                timeout=LLM_TIMEOUT,
+            )
+        elif provider == "dashscope":
+            _clients[provider] = OpenAI(
+                api_key=DASHSCOPE_API_KEY,
+                base_url=DASHSCOPE_BASE_URL,
+                timeout=LLM_TIMEOUT,
+            )
+        elif provider == "kimi":
+            _clients[provider] = OpenAI(
+                api_key=KIMI_API_KEY,
+                base_url=KIMI_BASE_URL,
+                timeout=LLM_TIMEOUT,
+            )
+        else:
+            raise ValueError(f"未知的 LLM 厂商: {provider}，支持: deepseek, dashscope, kimi")
+    return _clients[provider]
 
 
 # ── RAG 系统提示词 ─────────────────────────────────────
@@ -45,8 +69,12 @@ RAG_SYSTEM_PROMPT = """你是一个企业知识库智能助手。你的回答基
 
 def generate(messages: list[dict], temperature: float = 0.3,
              stream: bool = False, seed: int = 42,
-             model: str = None) -> str | Generator:
-    """通用 LLM 调用"""
+             model: str = None, provider: str = "deepseek") -> str | Generator:
+    """通用 LLM 调用
+
+    Args:
+        provider: 厂商名 — "deepseek"（默认）| "dashscope" | "kimi"
+    """
     kwargs = dict(
         model=model or LLM_MODEL,
         temperature=temperature,
@@ -55,15 +83,20 @@ def generate(messages: list[dict], temperature: float = 0.3,
         seed=seed,
     )
     if stream:
-        return get_llm().chat.completions.create(**kwargs)
+        return get_llm(provider).chat.completions.create(**kwargs)
     else:
-        resp = get_llm().chat.completions.create(**kwargs)
+        resp = get_llm(provider).chat.completions.create(**kwargs)
         return resp.choices[0].message.content or ""
 
 
 def generate_json(messages: list[dict], temperature: float = 0.2,
-                  seed: int = 42, model: str = None) -> str:
-    """JSON 模式调用 + markdown 代码块自动清洗"""
+                  seed: int = 42, model: str = None,
+                  provider: str = "deepseek") -> str:
+    """JSON 模式调用 + markdown 代码块自动清洗
+
+    Args:
+        provider: 厂商名 — "deepseek"（默认）| "dashscope" | "kimi"
+    """
     kwargs = dict(
         model=model or LLM_MODEL,
         temperature=temperature,
@@ -71,7 +104,7 @@ def generate_json(messages: list[dict], temperature: float = 0.2,
         response_format={"type": "json_object"},
         seed=seed,
     )
-    resp = get_llm().chat.completions.create(**kwargs)
+    resp = get_llm(provider).chat.completions.create(**kwargs)
     content = resp.choices[0].message.content or "{}"
     # 清洗 markdown 包裹
     content = re.sub(r"^```(?:json)?\s*", "", content)

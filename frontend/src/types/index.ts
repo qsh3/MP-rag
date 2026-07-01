@@ -47,6 +47,16 @@ export interface EvalMetric {
   name: string
   score: number
   description: string
+  review_score?: number | null
+}
+
+export interface ReviewDetail {
+  reviewed: boolean
+  review_status: string
+  reviewed_count: number
+  avg_review_scores: Record<string, number>
+  reason: string
+  adjustments: string[]
 }
 
 export interface EvalReport {
@@ -54,6 +64,27 @@ export interface EvalReport {
   kb_name: string
   sample_count: number
   metrics: EvalMetric[]
+  new_evaluated?: number
+  created_at: string
+  review?: ReviewDetail | null
+}
+
+export interface EvalDetailItem {
+  id: string
+  question: string
+  answer: string
+  contexts: string[]
+  faithfulness: number | null
+  answer_relevancy: number | null
+  context_precision: number | null
+  reviewed: number
+  review_faithfulness: number | null
+  review_answer_relevancy: number | null
+  review_context_precision: number | null
+  review_reason: string
+  review_changes: string[]
+  eval_raw: Record<string, any>       // 评估者完整推理
+  review_raw: Record<string, any>     // 复审者完整推理
   created_at: string
 }
 

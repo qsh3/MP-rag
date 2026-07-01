@@ -107,10 +107,25 @@ class EvalRunRequest(BaseModel):
     max_samples: int = Field(10, ge=1, le=50, description="最大评估样本数（默认10）")
 
 
+class EvalReviewRequest(BaseModel):
+    kb_id: str = Field(..., description="知识库 ID")
+    max_samples: int = Field(10, ge=1, le=50, description="最大复审样本数（默认10）")
+
+
 class EvalMetric(BaseModel):
     name: str
     score: float
     description: str
+    review_score: Optional[float] = None  # 复审者调整后的分数
+
+
+class ReviewDetail(BaseModel):
+    reviewed: bool = False
+    review_status: str = "ok"  # "ok" | "degraded" | "not_reviewed"
+    adjustments: list[str] = []  # ["faithfulness: 0.70->0.80 because..."]
+    reason: str = ""
+    reviewed_count: int = 0
+    avg_review_scores: dict = {}
 
 
 class EvalReportResponse(BaseModel):
@@ -120,6 +135,7 @@ class EvalReportResponse(BaseModel):
     metrics: list[EvalMetric]
     new_evaluated: int = 0
     created_at: str
+    review: Optional[ReviewDetail] = None
 
 
 # ═══════════════════════════════════════════════════════════

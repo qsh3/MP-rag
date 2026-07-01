@@ -5,10 +5,22 @@
         <a-button @click="$router.back()">← 返回</a-button>
         <h1>{{ kbName }} · 评估报告</h1>
       </a-space>
-      <a-button type="primary" @click="handleRunEval" :loading="running" :disabled="running">
-        <template #icon><ThunderboltOutlined /></template>
-        {{ running ? '评估中...' : '运行 RAGAS 评估' }}
-      </a-button>
+      <a-space>
+        <a-button type="primary" @click="handleRunEval" :loading="running" :disabled="running">
+          <template #icon><ThunderboltOutlined /></template>
+          {{ running ? '评估中...' : '运行评估' }}
+        </a-button>
+        <a-button @click="handleRunReview" :loading="reviewing" :disabled="reviewing || !report?.sample_count">
+          <template #icon><SafetyOutlined /></template>
+          {{ reviewing ? '复审中...' : '运行复审' }}
+        </a-button>
+        <a-popconfirm title="确定清空该知识库的所有评估记录？此操作不可恢复。" @confirm="handleClear">
+          <a-button danger :disabled="!report?.sample_count">
+            <template #icon><DeleteOutlined /></template>
+            清空记录
+          </a-button>
+        </a-popconfirm>
+      </a-space>
     </div>
 
     <!-- 评估进行中提示 -->
@@ -41,6 +53,11 @@
                 color: m.score >= 0.7 ? '#52c41a' : m.score >= 0.5 ? '#faad14' : '#ff4d4f'
               }"
             />
+            <div v-if="m.review_score != null" style="margin-top: 4px; font-size: 20px; font-weight: 500;
+              color: m.review_score >= 0.7 ? '#52c41a' : m.review_score >= 0.5 ? '#faad14' : '#ff4d4f';
+              font-family: 'SF Mono', 'Consolas', 'Menlo', monospace;">
+              复审 {{ (m.review_score * 100).toFixed(1) }}%
+            </div>
             <div style="font-size: 12px; color: #8c8c8c; margin-top: 8px; line-height: 1.5;">
               {{ m.description }}
             </div>
@@ -70,6 +87,54 @@
 
       <a-divider />
 
+      <!-- 评估详情（含 AI 推理过程） -->
+      <div v-if="details.length > 0" style="margin-bottom: 24px;">
+        <h3 style="margin-bottom: 16px;">评估推理详情</h3>
+        <a-collapse>
+          <a-collapse-panel v-for="d in details" :key="d.id"
+            :header="`${d.question.slice(0, 60)}${d.question.length > 60 ? '...' : ''}`">
+            <p><strong>问题：</strong>{{ d.question }}</p>
+            <p><strong>答案：</strong>{{ d.answer }}</p>
+
+            <a-descriptions bordered size="small" :column="3" style="margin: 12px 0;">
+              <a-descriptions-item label="忠实度">{{ (d.faithfulness * 100).toFixed(0) }}%</a-descriptions-item>
+              <a-descriptions-item label="答案相关性">{{ (d.answer_relevancy * 100).toFixed(0) }}%</a-descriptions-item>
+              <a-descriptions-item label="上下文精确度">{{ (d.context_precision * 100).toFixed(0) }}%</a-descriptions-item>
+            </a-descriptions>
+
+            <!-- 评估者推理 -->
+            <a-card size="small" title="📝 评估者推理" style="margin-bottom: 8px;">
+              <div v-if="d.eval_raw?.faithfulness">
+                <p><strong>忠实度 — 拆解声明：</strong>{{ JSON.stringify(d.eval_raw.faithfulness.claims) }}</p>
+                <p><strong>逐条判定：</strong>{{ JSON.stringify(d.eval_raw.faithfulness.verdicts) }}</p>
+                <p><strong>理由：</strong>{{ d.eval_raw.faithfulness.reason }}</p>
+              </div>
+              <div v-if="d.eval_raw?.answer_relevancy" style="margin-top: 8px;">
+                <p><strong>相关性 — 问题要点：</strong>{{ JSON.stringify(d.eval_raw.answer_relevancy.points) }}</p>
+                <p><strong>覆盖判定：</strong>{{ JSON.stringify(d.eval_raw.answer_relevancy.covered) }}</p>
+                <p><strong>理由：</strong>{{ d.eval_raw.answer_relevancy.reason }}</p>
+              </div>
+              <div v-if="d.eval_raw?.context_precision" style="margin-top: 8px;">
+                <p><strong>精度 — 片段相关性：</strong>{{ JSON.stringify(d.eval_raw.context_precision.relevant) }}</p>
+                <p><strong>理由：</strong>{{ d.eval_raw.context_precision.reason }}</p>
+              </div>
+              <a-empty v-if="!d.eval_raw?.faithfulness && !d.eval_raw?.answer_relevancy" description="评估推理数据未保存（旧记录）" />
+            </a-card>
+
+            <!-- 复审者推理 -->
+            <a-card v-if="d.reviewed === 1" size="small" title="🔍 复审者推理" style="background: #f6ffed;">
+              <p><strong>复审理由：</strong>{{ d.review_reason }}</p>
+              <p v-if="d.review_changes?.length"><strong>调整记录：</strong>{{ d.review_changes.join(', ') }}</p>
+              <a-descriptions v-if="d.review_faithfulness != null" bordered size="small" :column="3" style="margin-top: 8px;">
+                <a-descriptions-item label="复审忠实度">{{ (d.review_faithfulness * 100).toFixed(0) }}%</a-descriptions-item>
+                <a-descriptions-item label="复审相关性">{{ (d.review_answer_relevancy * 100).toFixed(0) }}%</a-descriptions-item>
+                <a-descriptions-item label="复审精确度">{{ (d.review_context_precision * 100).toFixed(0) }}%</a-descriptions-item>
+              </a-descriptions>
+            </a-card>
+          </a-collapse-panel>
+        </a-collapse>
+      </div>
+
       <!-- 空态 -->
       <a-empty
         v-if="!report || !report.metrics?.length"
@@ -88,9 +153,9 @@
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { ThunderboltOutlined } from '@ant-design/icons-vue'
+import { ThunderboltOutlined, SafetyOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import { getKB } from '../api/kb'
-import { runEval, getEvalReport } from '../api/eval'
+import { runEval, runReview, getEvalReport, getEvalDetails, clearEvalRecords } from '../api/eval'
 import type { EvalReport } from '../types'
 
 const route = useRoute()
@@ -99,6 +164,8 @@ const kbName = ref('')
 const report = ref<EvalReport | null>(null)
 const loading = ref(false)
 const running = ref(false)
+const reviewing = ref(false)
+const details = ref<any[]>([])
 
 const metricLabels: Record<string, string> = {
   faithfulness: '忠实度',
@@ -118,6 +185,8 @@ onMounted(async () => {
   try {
     loading.value = true
     report.value = await getEvalReport(kbId)
+    const detailData = await getEvalDetails(kbId, 20)
+    details.value = detailData.items || []
   } catch {
     /* 暂无报告 */
   } finally {
@@ -134,10 +203,41 @@ async function handleRunEval() {
     } else {
       message.info('评估完成，但暂无评分数据')
     }
+    const detailData = await getEvalDetails(kbId, 20)
+    details.value = detailData.items || []
   } catch (e: any) {
     message.error(`评估失败: ${e.response?.data?.detail || e.message}`)
   } finally {
     running.value = false
+  }
+}
+
+async function handleRunReview() {
+  reviewing.value = true
+  try {
+    const result = await runReview(kbId)
+    if (result?.metrics?.length) {
+      message.success(`复审完成，共复审 ${result.sample_count} 条记录`)
+    }
+    // 刷新报告和详情
+    report.value = await getEvalReport(kbId)
+    const detailData = await getEvalDetails(kbId, 20)
+    details.value = detailData.items || []
+  } catch (e: any) {
+    message.error(`复审失败: ${e.response?.data?.detail || e.message}`)
+  } finally {
+    reviewing.value = false
+  }
+}
+
+async function handleClear() {
+  try {
+    const result = await clearEvalRecords(kbId)
+    message.success(`已清空 ${result.deleted} 条评估记录`)
+    report.value = null
+    details.value = []
+  } catch (e: any) {
+    message.error(`清空失败: ${e.response?.data?.detail || e.message}`)
   }
 }
 </script>
