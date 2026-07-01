@@ -69,6 +69,7 @@
           </template>
           <template v-if="column.key === 'actions'">
             <a-popconfirm
+              v-if="authStore.isAdmin"
               title="确定删除此文档？"
               ok-text="确认删除"
               ok-type="danger"

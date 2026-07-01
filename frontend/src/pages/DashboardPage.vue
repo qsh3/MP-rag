@@ -34,7 +34,7 @@
                 <template #icon><EditOutlined /></template>
                 编辑
               </a-button>
-              <a-button size="small" danger block @click.stop="handleDelete(kb)">
+              <a-button v-if="authStore.isAdmin" size="small" danger block @click.stop="handleDelete(kb)">
                 <template #icon><DeleteOutlined /></template>
                 删除
               </a-button>
