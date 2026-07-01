@@ -7,6 +7,7 @@
 ## 目录
 
 - [项目简介](#项目简介)
+- [用户认证与权限](#用户认证与权限)
 - [系统架构](#系统架构)
 - [环境要求](#环境要求)
 - [第一步：获取 API Key](#第一步获取-api-key)
@@ -32,6 +33,8 @@
 
 除此之外，还内置了一套**自动化评估系统**，用另一个 LLM 给回答质量打分，帮你持续监控 RAG 管道的好坏。
 
+**v2.0 新增**：用户认证（JWT）、基于标签的文档权限控制、对话记录/评估数据按用户隔离、后台管理（标签目录 + 用户管理）。
+
 ### 界面预览
 
 | 知识库管理 | 文档管理 |
@@ -45,6 +48,44 @@
 | 评估推理详情 | RAGFlow 文档引擎 |
 |------------|-----------------|
 | ![评估推理详情](docs/images/eval-detail.png) | ![RAGFlow控制台](docs/images/ragflow-console.png) |
+
+---
+
+## 用户认证与权限
+
+### 认证
+
+- **JWT 登录/注册**：bcrypt 密码哈希 + python-jose 签发 token
+- 默认管理员账号：`admin` / `admin123`（首次启动自动创建，请尽快修改密码）
+- 注册时可选权限标签（从系统标签目录中选择）
+
+### 标签权限模型
+
+文档检索按用户标签做**两级过滤**：
+
+```
+用户提问 → MySQL 查询该用户可访问的文档 ID 列表
+         → RAGFlow 检索时限定 document_ids（过滤不可见的文档）
+         → LLM 仅基于可访问文档生成回答
+```
+
+| 用户类型 | 可见文档范围 |
+|---------|------------|
+| admin | 所有文档 |
+| 无标签用户 | 仅无标签文档（纯公开） |
+| 有标签用户（如"技术部"） | 无标签文档 + 标签匹配的文档 |
+
+- **无标签即公开**：不给文档打任何标签 = 所有人可见
+- **标签目录统一管理**：所有标签从 `tags` 主数据表选取，admin 可增删
+- **管理员保护**：禁止修改/删除任何 admin 账号
+
+### 对话记录与评估隔离
+
+| | 对话记录 | 评估数据 |
+|------|---------|---------|
+| **普通用户** | 保存，仅自己可见 | 不保存（受权限限制评估无意义） |
+| **admin** | 保存，看所有人的 | 保存，全局质量监控 |
+| **评估入口** | — | 前端仅 admin 可见，路由守卫保护 |
 
 ### 核心技术组件
 
@@ -67,12 +108,16 @@
   │  HTTP / SSE
   ▼
 FastAPI 后端 (Python 3.11)
-  ├─ api/kb.py         知识库 CRUD
-  ├─ api/document.py   文档上传/列表/删除
-  ├─ api/qa.py         问答接口（SSE 流式）
-  └─ api/eval.py       RAGAS 评估
+  ├─ api/auth.py        用户认证（JWT 登录/注册）
+  ├─ api/admin.py       用户管理（角色/标签/状态）
+  ├─ api/tags.py        标签目录管理
+  ├─ api/kb.py          知识库 CRUD
+  ├─ api/document.py    文档上传/列表/删除/标签编辑
+  ├─ api/qa.py          问答接口（SSE 流式 + 历史管理）
+  └─ api/eval.py        RAGAS 评估 + 复审
   │
   ├─ services/qa_service.py
+  │   ├─ 用户标签权限过滤（MySQL 预查 → RAGFlow document_ids）
   │   ├─ 关键词提取（LLM）
   │   ├─ RAGFlow 混合检索（向量 + BM25 + Reranker）
   │   └─ DeepSeek 流式生成
@@ -86,9 +131,10 @@ FastAPI 后端 (Python 3.11)
   ▼
 ┌──────────┬──────────────────┬─────────────────────────────────┐
 │  MySQL   │     RAGFlow      │   多厂商 LLM                     │
-│  元数据   │  文档解析/分块    │   Q&A: DeepSeek (deepseek-v4-pro)│
-│  聊天记录 │  向量化/混合检索   │   评估: DashScope/Qwen (qwen-plus)│
-│  评估数据 │  (Docker 部署)    │   复审: Kimi (kimi-k2.5)          │
+│  用户/标签 │  文档解析/分块    │   Q&A: DeepSeek                │
+│  知识库    │  向量化/混合检索   │   评估: DashScope/Qwen          │
+│  聊天记录  │  (Docker 部署)    │   复审: Kimi                    │
+│  评估数据  │                  │                                 │
 └──────────┴──────────────────┴─────────────────────────────────┘
 ```
 
@@ -121,6 +167,8 @@ httpx>=0.28.0               # HTTP 客户端（调用外部 API）
 openai>=2.37.0              # DeepSeek SDK（兼容 OpenAI 接口）
 sqlalchemy>=2.0.0           # ORM 数据库操作
 pymysql>=1.1.0              # MySQL 驱动
+bcrypt>=4.0.0,<5.0.0        # 密码哈希
+python-jose[cryptography]>=3.3.0  # JWT 签发/验证
 qdrant-client>=1.10.0       # Qdrant 向量数据库客户端
 PyMuPDF>=1.24.0             # PDF 解析（降级路径）
 python-docx>=1.0.0          # Word 解析（降级路径）
@@ -317,14 +365,28 @@ npm run dev        # 启动 Vite 开发服务器，默认 http://localhost:5173
 
 ## 第八步：使用系统
 
-浏览器打开 **http://localhost:8000**，你会看到：
+浏览器打开 **http://localhost:8000**。
+
+### 登录
+
+- 默认管理员：用户名 `admin`，密码 `admin123`
+- 首次登录请立即修改密码（通过「用户管理」页面）
+- 新用户可在登录页切换到「注册」标签自行注册
 
 ### 操作流程
 
 1. **创建知识库** — 点击「新建知识库」，输入名称和描述
-2. **上传文档** — 点击知识库卡片 → 上传 PDF/Word/Excel 等文档，等待解析完成（状态变为"就绪"）
-3. **开始提问** — 点击知识库卡片上的「问答」按钮，输入问题
-4. **查看评估** — 点击知识库卡片上的「评估」按钮，运行 RAGAS 自动评估
+2. **上传文档** — 点击知识库卡片 → 上传 PDF/Word/Excel 等文档，选择标签（可选），等待解析完成
+3. **开始提问** — 点击知识库卡片上的「问答」按钮，输入问题（问答结果受标签权限限制）
+4. **查看评估** — 管理员点击「评估」按钮，运行 RAGAS 自动评估（仅 admin 可见）
+
+### 后台管理（仅 admin）
+
+- **标签管理**（导航栏入口）：增删系统标签目录，所有标签输入框从目录中选取
+- **用户管理**（导航栏入口）：编辑用户角色/标签/启用状态，删除用户
+- **文档标签编辑**：在知识库页面直接编辑文档的权限标签
+
+> 💡 **权限测试方法**：上传时给不同文档打不同标签 → 创建不同标签的普通用户 → 分别登录提问，验证只能看到自己权限范围内的文档。
 
 ### 命令行测试
 
@@ -415,23 +477,42 @@ curl -X POST http://localhost:8000/api/v1/eval/run \
 
 | 方法 | 端点 | 说明 |
 |------|------|------|
+| **认证** | | |
+| `POST` | `/api/v1/auth/register` | 注册新用户（公开） |
+| `POST` | `/api/v1/auth/login` | 用户登录 |
+| `GET` | `/api/v1/auth/me` | 获取当前用户信息 |
+| **标签** | | |
+| `GET` | `/api/v1/tags` | 获取标签列表（公开） |
+| `POST` | `/api/v1/admin/tags` | 新建标签（admin） |
+| `DELETE` | `/api/v1/admin/tags/{id}` | 删除标签（admin） |
+| **用户管理** | | |
+| `GET` | `/api/v1/admin/users` | 用户列表（admin） |
+| `PUT` | `/api/v1/admin/users/{id}` | 更新用户（admin） |
+| `DELETE` | `/api/v1/admin/users/{id}` | 删除用户（admin） |
+| **知识库** | | |
 | `POST` | `/api/v1/kb` | 创建知识库 |
 | `GET` | `/api/v1/kb` | 获取知识库列表 |
-| `GET` | `/api/v1/kb/{id}` | 获取知识库详情（含文档数/分块数） |
-| `DELETE` | `/api/v1/kb/{id}` | 删除知识库及其关联数据 |
-| `POST` | `/api/v1/kb/{id}/docs` | 上传文档（multipart/form-data） |
-| `GET` | `/api/v1/kb/{id}/docs` | 获取文档列表 |
+| `GET` | `/api/v1/kb/{id}` | 获取知识库详情 |
+| `PUT` | `/api/v1/kb/{id}` | 更新知识库（admin） |
+| `DELETE` | `/api/v1/kb/{id}` | 删除知识库 |
+| **文档** | | |
+| `POST` | `/api/v1/kb/{id}/docs` | 上传文档（含 tags） |
+| `GET` | `/api/v1/kb/{id}/docs` | 获取文档列表（按用户标签过滤） |
+| `PUT` | `/api/v1/kb/{id}/docs/{did}` | 更新文档标签（admin） |
 | `DELETE` | `/api/v1/kb/{id}/docs/{did}` | 删除文档 |
-| `POST` | `/api/v1/qa/ask` | 提问（SSE 流式返回，含来源引用） |
-| `GET` | `/api/v1/qa/history/{kb_id}` | 获取历史问答记录 |
-| `DELETE` | `/api/v1/qa/session/{kb_id}/{sid}` | 删除对话会话 |
-| `POST` | `/api/v1/eval/run` | 运行 RAGAS 评估 |
-| `POST` | `/api/v1/eval/review` | 运行跨厂商复审 |
-| `GET` | `/api/v1/eval/report/{kb_id}` | 获取评估报告（含复审分数） |
+| **问答** | | |
+| `POST` | `/api/v1/qa/ask` | 提问（SSE 流式，按用户标签过滤检索） |
+| `GET` | `/api/v1/qa/history/{kb_id}` | 获取问答历史（按用户隔离） |
+| `DELETE` | `/api/v1/qa/session/{kb_id}/{sid}` | 删除对话会话（只能删自己的） |
+| **评估** | | |
+| `POST` | `/api/v1/eval/run` | 运行 RAGAS 评估（admin） |
+| `POST` | `/api/v1/eval/review` | 运行跨厂商复审（admin） |
+| `GET` | `/api/v1/eval/report/{kb_id}` | 获取评估报告 |
 | `GET` | `/api/v1/eval/data/{kb_id}` | 获取评估原始数据 |
-| `GET` | `/api/v1/eval/details/{kb_id}` | 获取评估推理详情（含复审理由） |
+| `GET` | `/api/v1/eval/details/{kb_id}` | 获取评估推理详情 |
 | `DELETE` | `/api/v1/eval/records/{kb_id}` | 清空评估记录 |
-| `GET` | `/api/v1/health` | 健康检查（含三厂商连通性） |
+| **系统** | | |
+| `GET` | `/api/v1/health` | 健康检查（含各服务连通性） |
 
 ---
 
@@ -445,37 +526,46 @@ MP/
 ├── rag_client.py              # RAGFlow REST API 封装
 │
 ├── api/                       # 路由层（薄层，只做参数校验和响应格式化）
+│   ├── auth.py                #   用户注册/登录
+│   ├── admin.py               #   用户管理（角色/标签/状态）
+│   ├── tags.py                #   标签目录 CRUD
 │   ├── kb.py                  #   知识库 CRUD
-│   ├── document.py            #   文档上传/列表/删除
-│   ├── qa.py                  #   问答 SSE 端点
-│   └── eval.py                #   评估触发/报告
+│   ├── document.py            #   文档上传/列表/删除/标签编辑
+│   ├── qa.py                  #   问答 SSE 端点 + 历史管理
+│   ├── eval.py                #   评估触发/报告
+│   └── dependencies.py        #   JWT 解析 + admin 权限守卫
 │
 ├── services/                  # 业务逻辑层
-│   ├── kb_service.py          #   知识库业务 + RAGFlow dataset 管理
-│   ├── qa_service.py          #   RAG 管道：关键词提取 → 检索 → 生成
-│   └── llm_service.py         #   多厂商 LLM 调用（DeepSeek/DashScope/Kimi，流式+JSON）
+│   ├── auth_service.py        #   用户认证 + 管理
+│   ├── kb_service.py          #   知识库 + 文档 + 标签权限过滤
+│   ├── qa_service.py          #   RAG 管道：权限过滤 → 检索 → 生成
+│   └── llm_service.py         #   多厂商 LLM 调用（DeepSeek/DashScope/Kimi）
 │
 ├── models/                    # 数据层
 │   ├── schemas.py             #   Pydantic 请求/响应校验
-│   └── db_models.py           #   SQLAlchemy ORM（4 张表）
+│   └── db_models.py           #   SQLAlchemy ORM（6 张表：KB/文档/聊天/评估/用户/标签）
 │
-├── evaluation/                # RAGAS 评估子系统
-│   ├── collector.py           #   从 ChatHistory + EvaluationRecord 采集数据
-│   └── runner.py              #   LLM-as-Judge：3 指标并发评估 + 跨厂商复审
-│
-├── core/                      # 本地降级模块（RAGFlow 离线时启用）
+├── core/                      # 核心模块
+│   ├── security.py            #   bcrypt 密码哈希 + JWT 签发/验证
 │   ├── parser.py              #   PyMuPDF + python-docx 文档解析
 │   └── chunker.py             #   滑动窗口分块
+│
+├── evaluation/                # RAGAS 评估子系统（admin 专用）
+│   ├── collector.py           #   从 ChatHistory + EvaluationRecord 采集数据
+│   └── runner.py              #   LLM-as-Judge：3 指标并发评估 + 跨厂商复审
 │
 └── frontend/                  # Vue 3 前端项目
     └── src/
         ├── pages/
-        │   ├── DashboardPage.vue      # 知识库卡片列表
-        │   ├── KnowledgeBasePage.vue  # 文档管理
-        │   ├── QAPage.vue            # 流式对话
-        │   └── EvalPage.vue          # 评估报告
+        │   ├── DashboardPage.vue         # 知识库卡片列表
+        │   ├── KnowledgeBasePage.vue     # 文档管理 + 标签编辑
+        │   ├── QAPage.vue               # 流式对话
+        │   ├── EvalPage.vue             # 评估报告（admin 路由守卫）
+        │   ├── LoginPage.vue            # 登录/注册（标签下拉多选）
+        │   ├── AdminTagsPage.vue        # 标签目录管理
+        │   └── AdminUsersPage.vue       # 用户管理
         ├── api/                # axios + SSE 客户端
-        ├── stores/             # Pinia 状态
+        ├── stores/             # Pinia 状态（authStore 等）
         ├── types/              # TS 类型定义
         └── styles/             # 全局样式
 ```
@@ -487,6 +577,10 @@ MP/
 | 决策 | 选择 | 理由 |
 |------|------|------|
 | 文档引擎 | RAGFlow | 开箱即用的解析/分块/向量化/混合检索/Reranker，避免手写整套 RAG 管道 |
+| 权限控制 | 标签 + 两级过滤 | MySQL 预查询可访问文档 ID → RAGFlow `document_ids` 参数限定检索范围 |
+| 权限语义 | 无标签 = 公开 | 不给文档打标签即所有人可见，打标签则仅匹配用户可见，简单直观 |
+| 用户认证 | JWT + bcrypt | 无状态认证、密码安全哈希、支持前端 Bearer token 注入 |
+| 评估策略 | 仅 admin 问答进入评估 | 普通用户受权限限制检索不全，评估无参考价值；只有 admin 全局视角评估才有效 |
 | Q&A LLM | DeepSeek | 中文能力强、成本为 OpenAI 的 1/10、API 完全兼容 OpenAI SDK |
 | 评估模型 | DashScope/Qwen | 无并发限制，避免自评估偏差（与 Q&A 不同厂商） |
 | 复审模型 | Kimi | 跨厂商第三方复审，复核评估者打分是否合理 |
