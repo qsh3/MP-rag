@@ -11,7 +11,7 @@
           <template #icon><MessageOutlined /></template>
           智能问答
         </a-button>
-        <a-button @click="$router.push(`/eval/${kbId}`)">
+        <a-button v-if="authStore.isAdmin" @click="$router.push(`/eval/${kbId}`)">
           <template #icon><FundOutlined /></template>
           评估报告
         </a-button>
