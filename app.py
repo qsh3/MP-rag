@@ -1,5 +1,5 @@
 """
-企业知识库智能问答系统 — FastAPI 入口
+知识库智能问答系统 — FastAPI 入口
 """
 import sys
 import io
@@ -26,7 +26,7 @@ async def lifespan(app: FastAPI):
     """应用生命周期"""
     # 启动时
     print("=" * 50)
-    print("  企业知识库智能问答系统 启动中...")
+    print("  知识库智能问答系统 启动中...")
     print("=" * 50)
 
     from rag_client import get_client
@@ -60,8 +60,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="企业知识库智能问答系统",
-    description="基于 RAGFlow + DeepSeek 的企业级 RAG 知识库问答平台",
+    title="知识库智能问答系统",
+    description="基于 RAGFlow + DeepSeek 的RAG 知识库问答平台",
     version="1.0.0",
     lifespan=lifespan,
 )

@@ -1,5 +1,5 @@
 """
-企业知识库智能问答系统 — 启动入口
+知识库智能问答系统 — 启动入口
 
 用法:
     python main.py              # 默认 http://localhost:8000
@@ -38,14 +38,14 @@ import argparse
 import uvicorn
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="企业知识库智能问答系统")
+    parser = argparse.ArgumentParser(description="知识库智能问答系统")
     parser.add_argument("--host", default="0.0.0.0", help="监听地址")
     parser.add_argument("--port", type=int, default=8000, help="监听端口")
     parser.add_argument("--reload", action="store_true", help="开发模式热重载")
     args = parser.parse_args()
 
     print("=" * 50)
-    print("  企业知识库智能问答系统")
+    print("  知识库智能问答系统")
     print("  http://%s:%d" % (args.host, args.port))
     print("  API 文档: http://%s:%d/docs" % (args.host, args.port))
     print("=" * 50)

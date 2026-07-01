@@ -1,5 +1,5 @@
 """
-RAGFlow 客户端 — 企业级知识库引擎集成
+RAGFlow 客户端 — 知识库引擎集成
 
 核心能力（由 RAGFlow 提供）：
 1. 多格式文档解析（PDF/DOCX/图片/Excel/PPT）+ 版面分析 + 智能分块

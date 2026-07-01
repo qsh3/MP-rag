@@ -30,7 +30,7 @@ KIMI_API_KEY = os.getenv("KIMI_API_KEY", "")
 KIMI_BASE_URL = os.getenv("KIMI_BASE_URL", "https://api.moonshot.cn/v1")
 REVIEW_MODEL = os.getenv("REVIEW_MODEL", "kimi-k2.5")
 
-# ── RAGFlow（企业级文档引擎）───────────────────────────────
+# ── RAGFlow（文档引擎）───────────────────────────────
 RAGFLOW_BASE_URL = os.getenv("RAGFLOW_BASE_URL", "")
 RAGFLOW_API_KEY = os.getenv("RAGFLOW_API_KEY", "")
 USE_RAGFLOW = os.getenv("USE_RAGFLOW", "").lower() in ("1", "true", "yes")

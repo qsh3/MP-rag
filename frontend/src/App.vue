@@ -4,7 +4,7 @@
     <nav class="app-navbar">
       <div class="navbar-brand">
         <span class="brand-icon">📚</span>
-        <span>企业知识库智能问答系统</span>
+        <span>知识库智能问答系统</span>
       </div>
       <div class="navbar-right">
         <span style="font-size: 12px; opacity: 0.75;">
