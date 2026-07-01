@@ -1,18 +1,19 @@
 """
 评估 API
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 
 from models.schemas import EvalRunRequest, EvalReviewRequest, EvalReportResponse, EvalMetric, ReviewDetail
 from services import kb_service
 from evaluation.runner import run_ragas_evaluation, run_review
 from evaluation.collector import collect_from_history, get_evaluated_scores, get_scored_details, clear_evaluation_records
+from api.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/v1/eval", tags=["评估"])
 
 
 @router.post("/run", response_model=EvalReportResponse)
-def run_evaluation(req: EvalRunRequest):
+def run_evaluation(req: EvalRunRequest, current_user=Depends(get_current_user)):
     """运行 RAGAS 评估（不含复审，复审需单独调用 /review）"""
     kb = kb_service.get_kb(req.kb_id)
     if not kb:
@@ -44,7 +45,7 @@ def run_evaluation(req: EvalRunRequest):
 
 
 @router.post("/review", response_model=EvalReportResponse)
-def run_review_endpoint(req: EvalReviewRequest):
+def run_review_endpoint(req: EvalReviewRequest, current_user=Depends(get_current_user)):
     """对已评估记录运行跨厂商复审"""
     kb = kb_service.get_kb(req.kb_id)
     if not kb:
@@ -89,7 +90,7 @@ def run_review_endpoint(req: EvalReviewRequest):
 
 
 @router.get("/report/{kb_id}", response_model=EvalReportResponse)
-def get_report(kb_id: str):
+def get_report(kb_id: str, current_user=Depends(get_current_user)):
     """查看最近的评估报告（从数据库读取已保存的评分）"""
     kb = kb_service.get_kb(kb_id)
     if not kb:
@@ -165,7 +166,7 @@ def get_report(kb_id: str):
 
 
 @router.get("/data/{kb_id}")
-def get_eval_data(kb_id: str, limit: int = Query(50, ge=1, le=200)):
+def get_eval_data(kb_id: str, limit: int = Query(50, ge=1, le=200), current_user=Depends(get_current_user)):
     """获取评估原始数据（用于前端展示）"""
     kb = kb_service.get_kb(kb_id)
     if not kb:
@@ -176,7 +177,7 @@ def get_eval_data(kb_id: str, limit: int = Query(50, ge=1, le=200)):
 
 
 @router.get("/details/{kb_id}")
-def get_eval_details(kb_id: str, limit: int = Query(20, ge=1, le=100)):
+def get_eval_details(kb_id: str, limit: int = Query(20, ge=1, le=100), current_user=Depends(get_current_user)):
     """获取已评估记录的详细推理过程（含评估者拆解声明、判定、复审理由等）"""
     kb = kb_service.get_kb(kb_id)
     if not kb:
@@ -187,7 +188,7 @@ def get_eval_details(kb_id: str, limit: int = Query(20, ge=1, le=100)):
 
 
 @router.delete("/records/{kb_id}")
-def clear_eval_records(kb_id: str):
+def clear_eval_records(kb_id: str, current_user=Depends(get_current_user)):
     """清空指定知识库的所有评估记录"""
     kb = kb_service.get_kb(kb_id)
     if not kb:

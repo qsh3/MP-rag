@@ -95,3 +95,18 @@ export interface HealthStatus {
   mysql: string
   qdrant: string
 }
+
+// 用户认证
+export interface UserInfo {
+  id: string
+  username: string
+  role: string
+  tags: string
+  is_active: number
+}
+
+export interface TokenResponse {
+  access_token: string
+  token_type: string
+  user: UserInfo
+}

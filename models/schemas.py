@@ -148,3 +148,32 @@ class HealthResponse(BaseModel):
     deepseek: str
     mysql: str
     qdrant: str = "configured"
+
+
+# ═══════════════════════════════════════════════════════════
+# 用户认证
+# ═══════════════════════════════════════════════════════════
+
+class RegisterRequest(BaseModel):
+    username: str = Field(..., min_length=2, max_length=50)
+    password: str = Field(..., min_length=4, max_length=100)
+    tags: str = Field("", max_length=500, description="权限标签，逗号分隔")
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class UserInfo(BaseModel):
+    id: str
+    username: str
+    role: str
+    tags: str = ""
+    is_active: int = 1
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserInfo

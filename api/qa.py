@@ -3,17 +3,18 @@
 """
 import json
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 
 from models.schemas import AskRequest, AskResponse, SourceDoc
 from services import kb_service, qa_service
+from api.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/v1/qa", tags=["问答"])
 
 
 @router.post("/ask")
-async def ask_question(req: AskRequest):
+async def ask_question(req: AskRequest, current_user=Depends(get_current_user)):
     """提问 — 支持流式(SSE)和非流式
 
     stream=true (默认): 返回 SSE 事件流
@@ -64,7 +65,7 @@ async def ask_question(req: AskRequest):
 
 
 @router.get("/history/{kb_id}")
-def get_history(kb_id: str):
+def get_history(kb_id: str, current_user=Depends(get_current_user)):
     """获取知识库的问答历史"""
     kb = kb_service.get_kb(kb_id)
     if not kb:
@@ -75,14 +76,14 @@ def get_history(kb_id: str):
 
 
 @router.delete("/session/{kb_id}/{session_id}")
-def delete_session(kb_id: str, session_id: str):
+def delete_session(kb_id: str, session_id: str, current_user=Depends(get_current_user)):
     """删除整个会话的所有聊天记录"""
     count = kb_service.delete_session_history(kb_id, session_id)
     return {"message": f"已删除 {count} 条记录"} if count else {"message": "无记录"}
 
 
 @router.delete("/history/{chat_id}")
-def delete_history(chat_id: str):
+def delete_history(chat_id: str, current_user=Depends(get_current_user)):
     """删除单条聊天记录"""
     from models.db_models import get_session, ChatHistory
     session = get_session()

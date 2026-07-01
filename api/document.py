@@ -5,17 +5,18 @@ import os
 import asyncio
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
 from models.schemas import DocResponse, DocListResponse
 from services import kb_service
 from rag_client import get_client as get_rag_client
 from config import UPLOAD_DIR
+from api.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/v1/kb/{kb_id}/docs", tags=["文档"])
 
 
 @router.post("")
-async def upload_documents(kb_id: str, files: list[UploadFile] = File(...)):
+async def upload_documents(kb_id: str, files: list[UploadFile] = File(...), current_user=Depends(get_current_user)):
     """上传文档到知识库（支持多文件）"""
     kb = kb_service.get_kb(kb_id)
     if not kb:
@@ -89,7 +90,7 @@ async def upload_documents(kb_id: str, files: list[UploadFile] = File(...)):
 
 
 @router.get("", response_model=DocListResponse)
-def list_documents(kb_id: str):
+def list_documents(kb_id: str, current_user=Depends(get_current_user)):
     """列出知识库中的文档"""
     kb = kb_service.get_kb(kb_id)
     if not kb:
@@ -100,7 +101,7 @@ def list_documents(kb_id: str):
 
 
 @router.get("/{doc_id}", response_model=DocResponse)
-def get_document(kb_id: str, doc_id: str):
+def get_document(kb_id: str, doc_id: str, current_user=Depends(get_current_user)):
     """获取文档详情"""
     doc = kb_service.get_document(doc_id)
     if not doc or doc["kb_id"] != kb_id:
@@ -109,7 +110,7 @@ def get_document(kb_id: str, doc_id: str):
 
 
 @router.delete("/{doc_id}")
-def delete_document(kb_id: str, doc_id: str):
+def delete_document(kb_id: str, doc_id: str, current_user=Depends(get_current_user)):
     """删除文档及其 chunks"""
     doc = kb_service.get_document(doc_id)
     if not doc or doc["kb_id"] != kb_id:

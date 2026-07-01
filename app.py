@@ -19,6 +19,7 @@ from api.kb import router as kb_router
 from api.document import router as doc_router
 from api.qa import router as qa_router
 from api.eval import router as eval_router
+from api.auth import router as auth_router
 
 
 @asynccontextmanager
@@ -46,6 +47,11 @@ async def lifespan(app: FastAPI):
         print("  [WARN] KIMI_API_KEY 未配置，评估复审功能将不可用")
     if not DASHSCOPE_API_KEY:
         print("  [WARN] DASHSCOPE_API_KEY 未配置，评估将使用 DeepSeek（可能存在自评估偏差）")
+
+    from config import JWT_SECRET
+    print("  JWT 认证:            %s" % ("已配置" if JWT_SECRET != "change-me-in-production" else "[WARN] 使用默认密钥，生产环境务必修改"))
+    if JWT_SECRET == "change-me-in-production":
+        print("  [WARN] JWT_SECRET 为默认值，请在 .env 中修改")
 
     # 初始化 MySQL 表
     try:
@@ -80,6 +86,7 @@ app.include_router(kb_router)
 app.include_router(doc_router)
 app.include_router(qa_router)
 app.include_router(eval_router)
+app.include_router(auth_router)
 
 
 @app.get("/api/v1/health")

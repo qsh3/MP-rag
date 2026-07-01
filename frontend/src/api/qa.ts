@@ -18,9 +18,13 @@ export function askStream(
   const controller = new AbortController()
 
   const promise = new Promise<void>((resolve, reject) => {
+    const token = localStorage.getItem('mp_auth_token')
     fetch('/api/v1/qa/ask', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify({ kb_id: kbId, question, top_k: topK, stream: true, session_id: sessionId }),
       signal: controller.signal,
     })

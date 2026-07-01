@@ -116,6 +116,22 @@ class EvaluationRecord(Base):
 
 
 # ═══════════════════════════════════════════════════════════
+# 用户（认证 + 标签权限）
+# ═══════════════════════════════════════════════════════════
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(String(32), primary_key=True, default=gen_id)
+    username = Column(String(100), nullable=False, unique=True, index=True)
+    password_hash = Column(String(255), nullable=False)
+    role = Column(String(20), nullable=False, default="user")  # 'admin' | 'user'
+    tags = Column(String(500), default="")  # 权限标签，逗号分隔
+    is_active = Column(Integer, default=1)   # 0=禁用, 1=启用
+    created_at = Column(String(32), default=now_str)
+
+
+# ═══════════════════════════════════════════════════════════
 # 数据库引擎
 # ═══════════════════════════════════════════════════════════
 
@@ -191,5 +207,26 @@ def init_db():
                     pass  # 列已存在则忽略
     except Exception:
         pass
+
+    # 创建默认管理员（首次启动）
+    try:
+        from core.security import hash_password
+        session = get_session()
+        existing_admin = session.query(User).filter_by(username="admin").first()
+        if not existing_admin:
+            admin_pwd = "admin123"
+            session.add(User(
+                id=gen_id(),
+                username="admin",
+                password_hash=hash_password(admin_pwd),
+                role="admin",
+                tags="",
+                is_active=1,
+            ))
+            session.commit()
+            print(f"[MySQL] 默认管理员已创建: admin / {admin_pwd}（请尽快修改密码）")
+        session.close()
+    except Exception as e:
+        print(f"[MySQL] 默认管理员创建失败: {e}")
 
     print("[MySQL] 数据库和表已初始化")

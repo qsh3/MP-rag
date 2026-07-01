@@ -55,6 +55,11 @@ NEO4J_URI = os.getenv("NEO4J_URI", "")
 NEO4J_USERNAME = os.getenv("NEO4J_USERNAME", "")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "")
 
+# ── JWT 认证配置 ──────────────────────────────────────────
+JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+JWT_EXPIRY_HOURS = int(os.getenv("JWT_EXPIRY_HOURS", "24"))
+
 # ── 应用设置 ───────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parent
 DATA_DIR = PROJECT_ROOT / "data"
