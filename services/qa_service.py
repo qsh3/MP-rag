@@ -8,29 +8,6 @@ from services.llm_service import generate_rag_stream, generate, RAG_SYSTEM_PROMP
 from services.kb_service import save_chat, save_evaluation_record
 
 
-def _extract_keywords(question: str) -> str:
-    """用 LLM 从问题中提取检索关键词（短查询优化）"""
-    if len(question) <= 3:
-        # 问题太短，直接返回原问题作为关键词
-        return question
-    try:
-        prompt = f"""从以下问题中提取 3-5 个最关键的检索关键词，用空格分隔。
-只输出关键词，不要解释。
-
-问题：{question}
-关键词："""
-        keywords = generate(
-            [{"role": "user", "content": prompt}],
-            temperature=0,
-            stream=False,
-        )
-        if isinstance(keywords, str) and keywords.strip():
-            return keywords.strip()
-    except Exception:
-        pass
-    return ""
-
-
 def _build_context(search_results: list[dict]) -> tuple[str, list[dict]]:
     """构建 LLM 上下文和来源列表
 
@@ -82,20 +59,13 @@ def ask_stream(kb_id: str, question: str, top_k: int = 5, session_id: str = None
     if kb:
         dataset_id = kb.get("ragflow_dataset_id")
 
-    # 2. 提取关键词增强检索
-    keywords = _extract_keywords(question)
-    search_query = f"{question} | {keywords}" if keywords else question
-
+    # 2. RAGFlow 混合检索（服务端自动停用词过滤 + 词权重 + 同义扩展）
     if not dataset_id and not rag.available:
-        search_results = rag._local_search(search_query, top_k)
+        search_results = rag._local_search(question, top_k)
     else:
-        # 3. RAGFlow 混合检索（关键词增强）
-        search_results = rag.search(dataset_id, search_query, top_k)
-        # 首次无结果则用原始问题重试
-        if not search_results and keywords:
-            search_results = rag.search(dataset_id, question, top_k)
+        search_results = rag.search(dataset_id, question, top_k)
 
-    # 4. 构建上下文
+    # 3. 构建上下文
     context, sources = _build_context(search_results)
 
     # 4. 流式生成
@@ -134,16 +104,11 @@ def ask_sync(kb_id: str, question: str, top_k: int = 5) -> dict:
     kb = get_kb(kb_id)
     dataset_id = kb.get("ragflow_dataset_id") if kb else None
 
-    # 关键词增强检索
-    keywords = _extract_keywords(question)
-    search_query = f"{question} | {keywords}" if keywords else question
-
+    # RAGFlow 混合检索
     if dataset_id or rag.available:
-        search_results = rag.search(dataset_id, search_query, top_k)
-        if not search_results and keywords:
-            search_results = rag.search(dataset_id, question, top_k)
+        search_results = rag.search(dataset_id, question, top_k)
     else:
-        search_results = rag._local_search(search_query, top_k)
+        search_results = rag._local_search(question, top_k)
 
     # 构建上下文
     context, sources = _build_context(search_results)

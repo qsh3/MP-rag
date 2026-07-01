@@ -324,16 +324,17 @@ class RAGFlowClient:
         return []
 
     # ══════════════════════════════════════════════════════════
-    # 语义检索（核心能力：混合检索 = 向量 + BM25 + Reranker）
+    # 语义检索（核心能力：RAGFlow retrieval API = 查询预处理 + 混合检索）
     # ══════════════════════════════════════════════════════════
 
     def search(self, dataset_id: str, query: str, top_k: int = None) -> list[dict]:
-        """混合检索 — 从知识库中找回最相关的 chunks
+        """混合检索 — 使用 RAGFlow retrieval API
 
-        RAGFlow 内部流程：
-        1. 向量搜索（语义匹配）
-        2. BM25 全文搜索（关键词匹配）
-        3. 融合重排序（Cross-Encoder）
+        服务端自动完成：
+        1. 停用词过滤（rmWWW — 移除"如何""什么"等无意义疑问词）
+        2. 词权重计算（IDF + NER 实体识别 + POS 词性加权）
+        3. 同义词扩展
+        4. 向量 + BM25 混合检索 + 融合重排序
 
         Returns:
             [{"content": "...", "score": 0.95, "doc_name": "...", "doc_id": "..."}, ...]
@@ -344,21 +345,32 @@ class RAGFlowClient:
             return self._local_search(query, top_k)
 
         resp = requests.post(
-            "%s/datasets/%s/search" % (self._api, dataset_id),
+            "%s/retrieval" % self._api,
             headers=self._auth,
-            json={"question": query, "top_k": top_k},
+            json={
+                "question": query,
+                "dataset_ids": [dataset_id],
+                "top_k": top_k,
+                "page": 1,
+                "page_size": top_k,
+                "similarity_threshold": 0.2,
+                "vector_similarity_weight": 0.3,
+            },
         )
         if resp.status_code != 200:
             return self._local_search(query, top_k)
 
-        data = resp.json().get("data", {})
-        chunks = data.get("chunks", []) if isinstance(data, dict) else self._extract_list(data)
+        body = resp.json()
+        if body.get("code") != 0:
+            return self._local_search(query, top_k)
+
+        data = body.get("data", {})
+        chunks = data.get("chunks", [])
         return [{
-            "content": c.get("content_with_weight") or c.get("content") or "",
+            "content": c.get("content", ""),
             "score": c.get("similarity", 0),
-            "doc_name": c.get("docnm_kwd", ""),
-            "doc_id": c.get("doc_id", ""),
-            "chunk_id": c.get("chunk_id", ""),
+            "doc_name": c.get("document_keyword", ""),
+            "doc_id": c.get("document_id", ""),
         } for c in chunks if isinstance(c, dict)]
 
     # ══════════════════════════════════════════════════════════
