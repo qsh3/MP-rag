@@ -42,16 +42,18 @@
 |---------|---------------|
 | ![智能问答](docs/images/qa-chat.png) | ![评估报告](docs/images/eval-report.png) |
 
-| RAGFlow 文档引擎 |
-|-----------------|
-| ![RAGFlow控制台](docs/images/ragflow-console.png) |
+| 评估推理详情 | RAGFlow 文档引擎 |
+|------------|-----------------|
+| ![评估推理详情](docs/images/eval-detail.png) | ![RAGFlow控制台](docs/images/ragflow-console.png) |
 
 ### 核心技术组件
 
 | 组件 | 作用 | 官方地址 |
 |------|------|---------|
 | [RAGFlow](https://github.com/infiniflow/ragflow) | 文档解析、分块、向量化、混合检索 | https://ragflow.io/ |
-| [DeepSeek](https://platform.deepseek.com/) | LLM 生成与评估 | https://api.deepseek.com |
+| [DeepSeek](https://platform.deepseek.com/) | Q&A 问答生成 | https://api.deepseek.com |
+| [DashScope](https://dashscope.aliyun.com/) | Qwen 评估模型 | https://dashscope.aliyun.com/ |
+| [Kimi (Moonshot)](https://platform.moonshot.cn/) | 跨厂商复审模型 | https://platform.moonshot.cn/ |
 | [RAGAS](https://github.com/vibrantlabsai/ragas) | RAG 质量评估框架 | https://docs.ragas.io/ |
 | [FastAPI](https://fastapi.tiangolo.com/) | 后端 API 框架 | https://github.com/fastapi/fastapi |
 | [Ant Design Vue](https://antdv.com/) | 前端 UI 组件库 | https://github.com/vueComponent/ant-design-vue |
@@ -78,15 +80,16 @@ FastAPI 后端 (Python 3.11)
   ├─ evaluation/runner.py
   │   ├─ Faithfulness 评估（陈述拆解 → 逐条验证）
   │   ├─ Answer Relevancy 评估（问题要点覆盖检查）
-  │   └─ Context Precision 评估（位置加权 Precision@k）
+  │   ├─ Context Precision 评估（位置加权 Precision@k）
+  │   └─ 复审 Review（跨厂商复核，可独立触发）
   │
   ▼
-┌──────────┬──────────────────┬─────────────────┐
-│  MySQL   │     RAGFlow      │   DeepSeek API  │
-│  元数据   │  文档解析/分块    │  deepseek-v4-pro│
-│  聊天记录 │  向量化/混合检索   │  deepseek-v4-flash│
-│  评估数据 │  (Docker 部署)    │  (评估)          │
-└──────────┴──────────────────┴─────────────────┘
+┌──────────┬──────────────────┬─────────────────────────────────┐
+│  MySQL   │     RAGFlow      │   多厂商 LLM                     │
+│  元数据   │  文档解析/分块    │   Q&A: DeepSeek (deepseek-v4-pro)│
+│  聊天记录 │  向量化/混合检索   │   评估: DashScope/Qwen (qwen-plus)│
+│  评估数据 │  (Docker 部署)    │   复审: Kimi (kimi-k2.5)          │
+└──────────┴──────────────────┴─────────────────────────────────┘
 ```
 
 **文档入库流水线：** 上传 → RAGFlow 解析 + 分块 + Embedding → MySQL 记录状态
@@ -398,10 +401,11 @@ curl -X POST http://localhost:8000/api/v1/eval/run \
 
 ### 设计要点
 
-- **评估模型**：使用 `deepseek-v4-flash`（成本远低于 v4-pro，评估场景只需简单判断）
-- **确定性输出**：`temperature=0` + `seed=42`，同一输入始终得到相同分数
+- **多厂商分工**：Q&A 用 DeepSeek，评估用 DashScope/Qwen，复审用 Kimi，避免同一模型自评偏差
+- **独立复审环节**：复审为单独按钮触发，可对已评估记录进行跨厂商复核，调整幅度 > 0.1 时采纳复审分数
+- **并发执行**：3 项指标并发评估 + 3 项指标并发复审，信号量控制防 API 限流
 - **增量评估**：已评分的条目自动跳过，避免重复消耗 token
-- **并发执行**：3 个样本 + 3 个指标并发调用，评估速度提升约 3 倍
+- **推理可见**：评估详情页完整展示 AI 的拆解声明、逐条判定和理由，复审理由同时展示
 
 ---
 
@@ -422,9 +426,12 @@ curl -X POST http://localhost:8000/api/v1/eval/run \
 | `GET` | `/api/v1/qa/history/{kb_id}` | 获取历史问答记录 |
 | `DELETE` | `/api/v1/qa/session/{kb_id}/{sid}` | 删除对话会话 |
 | `POST` | `/api/v1/eval/run` | 运行 RAGAS 评估 |
-| `GET` | `/api/v1/eval/report/{kb_id}` | 获取评估报告 |
+| `POST` | `/api/v1/eval/review` | 运行跨厂商复审 |
+| `GET` | `/api/v1/eval/report/{kb_id}` | 获取评估报告（含复审分数） |
 | `GET` | `/api/v1/eval/data/{kb_id}` | 获取评估原始数据 |
-| `GET` | `/api/v1/health` | 健康检查（含 RAGFlow 连通性） |
+| `GET` | `/api/v1/eval/details/{kb_id}` | 获取评估推理详情（含复审理由） |
+| `DELETE` | `/api/v1/eval/records/{kb_id}` | 清空评估记录 |
+| `GET` | `/api/v1/health` | 健康检查（含三厂商连通性） |
 
 ---
 
@@ -446,7 +453,7 @@ MP/
 ├── services/                  # 业务逻辑层
 │   ├── kb_service.py          #   知识库业务 + RAGFlow dataset 管理
 │   ├── qa_service.py          #   RAG 管道：关键词提取 → 检索 → 生成
-│   └── llm_service.py         #   DeepSeek 调用（流式 + JSON 模式 + seed 固定）
+│   └── llm_service.py         #   多厂商 LLM 调用（DeepSeek/DashScope/Kimi，流式+JSON）
 │
 ├── models/                    # 数据层
 │   ├── schemas.py             #   Pydantic 请求/响应校验
@@ -454,7 +461,7 @@ MP/
 │
 ├── evaluation/                # RAGAS 评估子系统
 │   ├── collector.py           #   从 ChatHistory + EvaluationRecord 采集数据
-│   └── runner.py              #   LLM-as-Judge：3 指标 × 3 并发 × 增量跳过
+│   └── runner.py              #   LLM-as-Judge：3 指标并发评估 + 跨厂商复审
 │
 ├── core/                      # 本地降级模块（RAGFlow 离线时启用）
 │   ├── parser.py              #   PyMuPDF + python-docx 文档解析
@@ -480,12 +487,12 @@ MP/
 | 决策 | 选择 | 理由 |
 |------|------|------|
 | 文档引擎 | RAGFlow | 开箱即用的解析/分块/向量化/混合检索/Reranker，避免手写整套 RAG 管道 |
-| LLM 模型 | DeepSeek | 中文能力强、成本为 OpenAI 的 1/10、API 完全兼容 OpenAI SDK |
-| 评估模型 | deepseek-v4-flash | 评估场景只需 yes/no 判断，flash 比 pro 快 3 倍且便宜 |
+| Q&A LLM | DeepSeek | 中文能力强、成本为 OpenAI 的 1/10、API 完全兼容 OpenAI SDK |
+| 评估模型 | DashScope/Qwen | 无并发限制，避免自评估偏差（与 Q&A 不同厂商） |
+| 复审模型 | Kimi | 跨厂商第三方复审，复核评估者打分是否合理 |
 | 流式传输 | SSE | 单向流式场景 SSE 比 WebSocket 更简单，CDN/代理兼容性好 |
-| 评估一致性 | temperature=0 + seed=42 | 结构化评估 Prompt + 确定性参数，确保每次评估结果一致 |
+| 并发策略 | ThreadPoolExecutor + Semaphore | 信号量控并发：Kimi=3(组织限制), DashScope=10；三项指标并发执行 |
 | 检索优化 | LLM 关键词提取 | 短查询（如"有多少表"）直接搜索命中率低，先拆成关键词再检索 |
-| 并发策略 | ThreadPoolExecutor(3) | I/O 密集型 LLM 调用，3 并发在速度和 API 限流之间取平衡 |
 | 降级设计 | 本地解析 + Qdrant | RAGFlow 离线时自动切换，系统仍可用 |
 
 ---
