@@ -7,9 +7,56 @@ from typing import Optional
 
 from models.db_models import (
     get_session, KnowledgeBase, Document, ChatHistory,
-    EvaluationRecord, now_str, gen_id,
+    EvaluationRecord, Tag, now_str, gen_id,
 )
 from rag_client import get_client as get_rag_client
+
+
+# ═══════════════════════════════════════════════════════════
+# 标签权限工具
+# ═══════════════════════════════════════════════════════════
+
+def _parse_tags(tags_str: str) -> set[str]:
+    """将逗号分隔的标签字符串转为集合"""
+    if not tags_str or not tags_str.strip():
+        return set()
+    return {t.strip() for t in tags_str.split(",") if t.strip()}
+
+
+def get_accessible_ragflow_doc_ids(user, kb_id: str) -> list[str] | None:
+    """获取用户可访问的文档 ragflow_doc_id 列表（两级过滤第一步）
+
+    权限规则：
+    - admin → 不受限
+    - 无标签用户 → 只能看无标签文档（纯公开）
+    - 有标签用户 → 无标签文档 + 标签匹配的文档
+
+    Returns:
+        None  — 无限制（仅 admin）
+        []    — 无任何可访问文档
+        [...] — 允许的 ragflow_doc_id 列表
+    """
+    # admin 不受限
+    if hasattr(user, "role") and user.role == "admin":
+        return None
+
+    user_tags = _parse_tags(getattr(user, "tags", ""))
+
+    session = get_session()
+    try:
+        docs = session.query(Document).filter_by(kb_id=kb_id).all()
+        allowed = []
+        for doc in docs:
+            doc_tags = _parse_tags(doc.tags or "")
+            if not doc_tags:
+                # 无标签文档 = 公开，所有人可见
+                allowed.append(doc.ragflow_doc_id)
+            elif user_tags and user_tags & doc_tags:
+                # 用户标签与文档标签有交集
+                allowed.append(doc.ragflow_doc_id)
+        return allowed
+    finally:
+        session.close()
 
 
 # ═══════════════════════════════════════════════════════════
@@ -118,13 +165,14 @@ def delete_kb(kb_id: str) -> bool:
 # ═══════════════════════════════════════════════════════════
 
 def add_document(kb_id: str, filename: str, file_type: str,
-                 file_size: int, file_path: str) -> dict:
+                 file_size: int, file_path: str, tags: str = "") -> dict:
     """添加文档记录"""
     session = get_session()
     try:
         doc = Document(
             kb_id=kb_id, filename=filename, file_type=file_type,
-            file_size=file_size, file_path=file_path, status="processing"
+            file_size=file_size, file_path=file_path, status="processing",
+            tags=tags,
         )
         session.add(doc)
 
@@ -250,15 +298,25 @@ def sync_documents_with_ragflow(kb_id: str):
         session.close()
 
 
-def list_documents(kb_id: str) -> list[dict]:
-    """列出知识库下的文档（自动同步 RAGFlow 状态）"""
+def list_documents(kb_id: str, user=None) -> list[dict]:
+    """列出知识库下的文档（自动同步 RAGFlow 状态，按用户标签过滤）"""
     sync_documents_with_ragflow(kb_id)
 
     session = get_session()
     try:
         docs = session.query(Document).filter_by(kb_id=kb_id)\
             .order_by(Document.created_at.desc()).all()
-        return [_doc_to_dict(d) for d in docs]
+        result = [_doc_to_dict(d) for d in docs]
+
+        # 按用户标签过滤：无标签用户只能看无标签文档，有标签用户额外看匹配文档
+        if user and getattr(user, "role", "") != "admin":
+            user_tags = _parse_tags(getattr(user, "tags", ""))
+            result = [
+                d for d in result
+                if not _parse_tags(d.get("tags", ""))
+                or (user_tags and user_tags & _parse_tags(d.get("tags", "")))
+            ]
+        return result
     finally:
         session.close()
 
@@ -311,7 +369,7 @@ def delete_document(doc_id: str) -> bool:
 # ═══════════════════════════════════════════════════════════
 
 def save_chat(kb_id: str, question: str, answer: str, sources: list,
-              session_id: str = None) -> dict:
+              session_id: str = None, user_id: str = "") -> dict:
     """保存问答记录"""
     session = get_session()
     try:
@@ -319,7 +377,7 @@ def save_chat(kb_id: str, question: str, answer: str, sources: list,
         chat = ChatHistory(
             kb_id=kb_id, question=question, answer=answer,
             sources=json.dumps(sources, ensure_ascii=False),
-            session_id=sid,
+            session_id=sid, user_id=user_id,
         )
         session.add(chat)
         session.commit()
@@ -328,12 +386,14 @@ def save_chat(kb_id: str, question: str, answer: str, sources: list,
         session.close()
 
 
-def get_chat_history(kb_id: str, limit: int = 50) -> list[dict]:
-    """获取知识库的问答历史（按会话分组）"""
+def get_chat_history(kb_id: str, limit: int = 50, user=None) -> list[dict]:
+    """获取知识库的问答历史（按用户隔离：普通用户只看自己的，admin 看所有）"""
     session = get_session()
     try:
-        chats = session.query(ChatHistory).filter_by(kb_id=kb_id)\
-            .order_by(ChatHistory.created_at.desc()).limit(limit).all()
+        q = session.query(ChatHistory).filter_by(kb_id=kb_id)
+        if user and getattr(user, "role", "") != "admin":
+            q = q.filter_by(user_id=user.id)
+        chats = q.order_by(ChatHistory.created_at.desc()).limit(limit).all()
         return [{"id": c.id, "session_id": c.session_id or "",
                  "question": c.question, "answer": c.answer,
                  "sources": _parse_json(c.sources), "created_at": c.created_at} for c in chats]
@@ -341,25 +401,28 @@ def get_chat_history(kb_id: str, limit: int = 50) -> list[dict]:
         session.close()
 
 
-def get_session_history(kb_id: str, session_id: str) -> list[dict]:
-    """获取指定会话的完整对话历史"""
+def get_session_history(kb_id: str, session_id: str, user=None) -> list[dict]:
+    """获取指定会话的完整对话历史（按用户隔离）"""
     session = get_session()
     try:
-        chats = session.query(ChatHistory)\
-            .filter_by(kb_id=kb_id, session_id=session_id)\
-            .order_by(ChatHistory.created_at.asc()).all()
+        q = session.query(ChatHistory).filter_by(kb_id=kb_id, session_id=session_id)
+        if user and getattr(user, "role", "") != "admin":
+            q = q.filter_by(user_id=user.id)
+        chats = q.order_by(ChatHistory.created_at.asc()).all()
         return [{"id": c.id, "question": c.question, "answer": c.answer,
                  "sources": _parse_json(c.sources), "created_at": c.created_at} for c in chats]
     finally:
         session.close()
 
 
-def delete_session_history(kb_id: str, session_id: str) -> int:
-    """删除指定会话的所有聊天记录"""
+def delete_session_history(kb_id: str, session_id: str, user=None) -> int:
+    """删除指定会话的所有聊天记录（只能删自己的）"""
     session = get_session()
     try:
-        count = session.query(ChatHistory)\
-            .filter_by(kb_id=kb_id, session_id=session_id).delete()
+        q = session.query(ChatHistory).filter_by(kb_id=kb_id, session_id=session_id)
+        if user and getattr(user, "role", "") != "admin":
+            q = q.filter_by(user_id=user.id)
+        count = q.delete()
         session.commit()
         return count
     finally:
@@ -371,14 +434,15 @@ def delete_session_history(kb_id: str, session_id: str) -> int:
 # ═══════════════════════════════════════════════════════════
 
 def save_evaluation_record(kb_id: str, question: str, answer: str,
-                           contexts: list, ground_truth: str = None) -> str:
+                           contexts: list, ground_truth: str = None,
+                           user_id: str = "") -> str:
     """保存评估记录"""
     session = get_session()
     try:
         record = EvaluationRecord(
             kb_id=kb_id, question=question, answer=answer,
             contexts=json.dumps(contexts, ensure_ascii=False),
-            ground_truth=ground_truth,
+            ground_truth=ground_truth, user_id=user_id,
         )
         session.add(record)
         session.commit()
@@ -396,6 +460,70 @@ def get_unevaluated_records(kb_id: str) -> list[dict]:
             .filter(EvaluationRecord.faithfulness.is_(None))\
             .all()
         return [_eval_to_dict(r) for r in records]
+    finally:
+        session.close()
+
+
+# ═══════════════════════════════════════════════════════════
+# 标签目录管理
+# ═══════════════════════════════════════════════════════════
+
+def list_tags() -> list[dict]:
+    """列出所有标签"""
+    session = get_session()
+    try:
+        tags = session.query(Tag).order_by(Tag.created_at.asc()).all()
+        return [{"id": t.id, "name": t.name} for t in tags]
+    finally:
+        session.close()
+
+
+def create_tag(name: str) -> dict:
+    """新建标签"""
+    session = get_session()
+    try:
+        existing = session.query(Tag).filter_by(name=name).first()
+        if existing:
+            raise ValueError(f"标签 '{name}' 已存在")
+        tag = Tag(name=name)
+        session.add(tag)
+        session.commit()
+        return {"id": tag.id, "name": tag.name}
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def delete_tag(tag_id: str) -> bool:
+    """删除标签"""
+    session = get_session()
+    try:
+        tag = session.query(Tag).filter_by(id=tag_id).first()
+        if not tag:
+            return False
+        session.delete(tag)
+        session.commit()
+        return True
+    finally:
+        session.close()
+
+
+# ═══════════════════════════════════════════════════════════
+# 文档标签管理（admin）
+# ═══════════════════════════════════════════════════════════
+
+def update_document_tags(doc_id: str, tags: str) -> Optional[dict]:
+    """更新文档标签（admin 专用）"""
+    session = get_session()
+    try:
+        doc = session.query(Document).filter_by(id=doc_id).first()
+        if not doc:
+            return None
+        doc.tags = tags
+        session.commit()
+        return _doc_to_dict(doc)
     finally:
         session.close()
 
@@ -426,6 +554,7 @@ def _doc_to_dict(doc: Document) -> dict:
         "chunk_count": doc.chunk_count or 0,
         "created_at": doc.created_at or "",
         "kb_id": doc.kb_id,
+        "tags": doc.tags or "",
     }
 
 

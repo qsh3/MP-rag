@@ -48,6 +48,7 @@ class DocResponse(BaseModel):
     chunk_count: int = 0
     created_at: str
     kb_id: str
+    tags: str = ""
 
 
 class DocListResponse(BaseModel):
@@ -177,3 +178,34 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserInfo
+
+
+# ═══════════════════════════════════════════════════════════
+# 标签目录
+# ═══════════════════════════════════════════════════════════
+
+class TagResponse(BaseModel):
+    id: str
+    name: str
+
+
+class TagCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=50, description="标签名称")
+
+
+# ═══════════════════════════════════════════════════════════
+# 管理员 — 用户管理
+# ═══════════════════════════════════════════════════════════
+
+class AdminUpdateUserRequest(BaseModel):
+    tags: Optional[str] = Field(None, description="权限标签")
+    role: Optional[str] = Field(None, description="角色: admin 或 user")
+    is_active: Optional[int] = Field(None, description="0=禁用, 1=启用")
+
+
+# ═══════════════════════════════════════════════════════════
+# 文档更新
+# ═══════════════════════════════════════════════════════════
+
+class UpdateDocRequest(BaseModel):
+    tags: Optional[str] = Field(None, description="权限标签")

@@ -15,7 +15,18 @@
           <span style="color: rgba(255,255,255,0.85); font-size: 13px;">
             {{ authStore.currentUser?.username }}
             <a-tag v-if="authStore.isAdmin" color="gold" style="font-size: 10px; margin-left: 4px;">管理员</a-tag>
+            <template v-if="!authStore.isAdmin && authStore.currentUser?.tags">
+              <a-tag v-for="t in authStore.currentUser.tags.split(',').filter(Boolean)" :key="t" color="blue" style="font-size: 10px; margin-left: 2px;">{{ t }}</a-tag>
+            </template>
           </span>
+          <template v-if="authStore.isAdmin">
+            <a-button type="link" style="color: rgba(255,255,255,0.7); padding: 0; font-size: 12px;" @click="$router.push('/admin/tags')">
+              标签管理
+            </a-button>
+            <a-button type="link" style="color: rgba(255,255,255,0.7); padding: 0; font-size: 12px;" @click="$router.push('/admin/users')">
+              用户管理
+            </a-button>
+          </template>
           <a-button type="link" style="color: rgba(255,255,255,0.75); padding: 0;" @click="$router.push('/')">
             首页
           </a-button>

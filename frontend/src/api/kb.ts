@@ -16,6 +16,11 @@ export async function getKB(id: string): Promise<KnowledgeBase> {
   return data
 }
 
+export async function updateKB(id: string, name: string, description: string): Promise<KnowledgeBase> {
+  const { data } = await api.put(`/kb/${id}`, { name, description })
+  return data
+}
+
 export async function deleteKB(id: string): Promise<void> {
   await api.delete(`/kb/${id}`)
 }

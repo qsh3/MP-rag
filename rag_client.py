@@ -327,7 +327,8 @@ class RAGFlowClient:
     # 语义检索（核心能力：RAGFlow retrieval API = 查询预处理 + 混合检索）
     # ══════════════════════════════════════════════════════════
 
-    def search(self, dataset_id: str, query: str, top_k: int = None) -> list[dict]:
+    def search(self, dataset_id: str, query: str, top_k: int = None,
+               document_ids: list[str] = None) -> list[dict]:
         """混合检索 — 使用 RAGFlow retrieval API
 
         服务端自动完成：
@@ -336,33 +337,44 @@ class RAGFlowClient:
         3. 同义词扩展
         4. 向量 + BM25 混合检索 + 融合重排序
 
+        Args:
+            document_ids: 限定检索的文档 ID 列表。None=不限，[]=无文档（返回空）。
+
         Returns:
             [{"content": "...", "score": 0.95, "doc_name": "...", "doc_id": "..."}, ...]
         """
         top_k = top_k or TOP_K_RETRIEVAL
 
+        # 空列表 = 无权限文档，直接返回空结果
+        if document_ids is not None and len(document_ids) == 0:
+            return []
+
         if not self.ensure_available():
-            return self._local_search(query, top_k)
+            return self._local_search(query, top_k, document_ids)
+
+        body = {
+            "question": query,
+            "dataset_ids": [dataset_id],
+            "top_k": top_k,
+            "page": 1,
+            "page_size": top_k,
+            "similarity_threshold": 0.2,
+            "vector_similarity_weight": 0.3,
+        }
+        if document_ids is not None:
+            body["document_ids"] = document_ids
 
         resp = requests.post(
             "%s/retrieval" % self._api,
             headers=self._auth,
-            json={
-                "question": query,
-                "dataset_ids": [dataset_id],
-                "top_k": top_k,
-                "page": 1,
-                "page_size": top_k,
-                "similarity_threshold": 0.2,
-                "vector_similarity_weight": 0.3,
-            },
+            json=body,
         )
         if resp.status_code != 200:
-            return self._local_search(query, top_k)
+            return self._local_search(query, top_k, document_ids)
 
         body = resp.json()
         if body.get("code") != 0:
-            return self._local_search(query, top_k)
+            return self._local_search(query, top_k, document_ids)
 
         data = body.get("data", {})
         chunks = data.get("chunks", [])
@@ -469,12 +481,17 @@ class RAGFlowClient:
         except Exception as e:
             return "[OCR错误: %s]" % e
 
-    def _local_search(self, query: str, top_k: int) -> list[dict]:
-        """本地降级检索 — Qdrant ANN 搜索"""
+    def _local_search(self, query: str, top_k: int,
+                      document_ids: list[str] = None) -> list[dict]:
+        """本地降级检索 — Qdrant ANN 搜索（支持文档级过滤）"""
+        # 空列表 = 无权限文档，直接返回空
+        if document_ids is not None and len(document_ids) == 0:
+            return []
+
         try:
             from openai import OpenAI
             from qdrant_client import QdrantClient
-            from qdrant_client.models import SearchRequest
+            from qdrant_client.models import Filter, FieldCondition, MatchAny
             from config import (
                 QDRANT_URL, QDRANT_API_KEY, QDRANT_COLLECTION,
                 EMBED_API_KEY, EMBED_BASE_URL, EMBED_MODEL_NAME,
@@ -485,12 +502,18 @@ class RAGFlowClient:
             emb_resp = client.embeddings.create(model=EMBED_MODEL_NAME, input=query)
             query_vector = emb_resp.data[0].embedding
 
-            # 2. Qdrant 搜索
+            # 2. Qdrant 搜索（带文档级过滤）
             qdrant = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+            query_filter = None
+            if document_ids is not None:
+                query_filter = Filter(
+                    must=[FieldCondition(key="doc_id", match=MatchAny(any=document_ids))]
+                )
             results = qdrant.search(
                 collection_name=QDRANT_COLLECTION,
                 query_vector=query_vector,
                 limit=top_k,
+                query_filter=query_filter,
             )
             return [{
                 "content": r.payload.get("text", ""),

@@ -25,7 +25,13 @@
               <a-input-password v-model:value="regForm.password" placeholder="密码" />
             </a-form-item>
             <a-form-item name="tags">
-              <a-input v-model:value="regForm.tags" placeholder="权限标签（逗号分隔，如 技术部,公开）" />
+              <a-select
+                v-model:value="regForm.tagsList"
+                mode="multiple"
+                placeholder="选择权限标签（可选）"
+                style="width: 100%;"
+                :options="tagOptions"
+              />
             </a-form-item>
             <a-form-item>
               <a-button type="primary" html-type="submit" block :loading="loading">注册</a-button>
@@ -43,6 +49,7 @@ import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { useAuthStore } from '../stores/authStore'
 import { register as apiRegister } from '../api/auth'
+import { listTags } from '../api/tags'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -50,12 +57,17 @@ const tab = ref('login')
 const loading = ref(false)
 
 const loginForm = ref({ username: '', password: '' })
-const regForm = ref({ username: '', password: '', tags: '' })
+const regForm = ref({ username: '', password: '', tagsList: [] as string[] })
+const tagOptions = ref<{ label: string; value: string }[]>([])
 
-onMounted(() => {
+onMounted(async () => {
   if (authStore.isLoggedIn) {
     router.push('/')
   }
+  try {
+    const tags = await listTags()
+    tagOptions.value = tags.map(t => ({ label: t.name, value: t.name }))
+  } catch { /* 标签加载失败不影响登录 */ }
 })
 
 async function handleLogin() {
@@ -74,11 +86,19 @@ async function handleLogin() {
 async function handleRegister() {
   loading.value = true
   try {
-    const res = await apiRegister(regForm.value.username, regForm.value.password, regForm.value.tags)
+    const tags = regForm.value.tagsList.join(',') || ''
+    const res = await apiRegister(regForm.value.username, regForm.value.password, tags)
+    console.log('[注册] API 返回:', res)
     authStore.setAuth(res.access_token, res.user)
+    console.log('[注册] setAuth 完成，token 已设置')
     message.success('注册成功')
-    router.push('/')
+    await router.push('/')
+    console.log('[注册] 跳转完成')
   } catch (e: any) {
+    console.error('[注册] 异常:', e)
+    if (e.response) {
+      console.error('[注册] HTTP 错误:', e.response.status, e.response.data)
+    }
     message.error(e.response?.data?.detail || '注册失败')
   } finally {
     loading.value = false

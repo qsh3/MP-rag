@@ -1,5 +1,10 @@
 // 类型定义
 
+export interface Tag {
+  id: string
+  name: string
+}
+
 export interface KnowledgeBase {
   id: string
   name: string
@@ -19,6 +24,7 @@ export interface Document {
   chunk_count: number
   created_at: string
   kb_id: string
+  tags: string
 }
 
 export interface SourceDoc {

@@ -34,7 +34,7 @@ async def ask_question(req: AskRequest, current_user=Depends(get_current_user)):
         def sse_generator():
             try:
                 for chunk in qa_service.ask_stream(
-                    req.kb_id, req.question, req.top_k, req.session_id
+                    req.kb_id, req.question, req.top_k, req.session_id, current_user
                 ):
                     event = chunk.get("event", "message")
                     data = chunk.get("data", "")
@@ -54,7 +54,7 @@ async def ask_question(req: AskRequest, current_user=Depends(get_current_user)):
             },
         )
     else:
-        result = qa_service.ask_sync(req.kb_id, req.question, req.top_k)
+        result = qa_service.ask_sync(req.kb_id, req.question, req.top_k, current_user)
         sources = [SourceDoc(**s) for s in result.get("sources", [])]
         return AskResponse(
             answer=result["answer"],
@@ -66,33 +66,35 @@ async def ask_question(req: AskRequest, current_user=Depends(get_current_user)):
 
 @router.get("/history/{kb_id}")
 def get_history(kb_id: str, current_user=Depends(get_current_user)):
-    """获取知识库的问答历史"""
+    """获取知识库的问答历史（按用户隔离）"""
     kb = kb_service.get_kb(kb_id)
     if not kb:
         raise HTTPException(status_code=404, detail="知识库不存在")
 
-    history = kb_service.get_chat_history(kb_id)
+    history = kb_service.get_chat_history(kb_id, user=current_user)
     return {"total": len(history), "items": history}
 
 
 @router.delete("/session/{kb_id}/{session_id}")
 def delete_session(kb_id: str, session_id: str, current_user=Depends(get_current_user)):
-    """删除整个会话的所有聊天记录"""
-    count = kb_service.delete_session_history(kb_id, session_id)
+    """删除整个会话的所有聊天记录（只能删自己的）"""
+    count = kb_service.delete_session_history(kb_id, session_id, user=current_user)
     return {"message": f"已删除 {count} 条记录"} if count else {"message": "无记录"}
 
 
 @router.delete("/history/{chat_id}")
 def delete_history(chat_id: str, current_user=Depends(get_current_user)):
-    """删除单条聊天记录"""
+    """删除单条聊天记录（只能删自己的，admin 可删所有）"""
     from models.db_models import get_session, ChatHistory
     session = get_session()
     try:
         chat = session.query(ChatHistory).filter_by(id=chat_id).first()
-        if chat:
-            session.delete(chat)
-            session.commit()
-            return {"message": "已删除"}
-        raise HTTPException(status_code=404, detail="记录不存在")
+        if not chat:
+            raise HTTPException(status_code=404, detail="记录不存在")
+        if current_user.role != "admin" and chat.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="只能删除自己的聊天记录")
+        session.delete(chat)
+        session.commit()
+        return {"message": "已删除"}
     finally:
         session.close()

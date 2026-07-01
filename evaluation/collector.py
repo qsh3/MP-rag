@@ -7,8 +7,8 @@ from datetime import datetime
 from models.db_models import get_session, ChatHistory, EvaluationRecord
 
 
-def collect_from_history(kb_id: str, limit: int = 100) -> list[dict]:
-    """从聊天历史 + 评估记录中收集问答数据（去重）
+def collect_from_history(kb_id: str, limit: int = 100, user=None) -> list[dict]:
+    """从聊天历史 + 评估记录中收集问答数据（去重，按用户隔离）
 
     Returns:
         [{"question": "...", "answer": "...", "contexts": [...], "ground_truth": ""}]
@@ -19,11 +19,10 @@ def collect_from_history(kb_id: str, limit: int = 100) -> list[dict]:
         dataset = []
 
         # 1. 从 ChatHistory 收集（主要来源）
-        chats = session.query(ChatHistory)\
-            .filter_by(kb_id=kb_id)\
-            .order_by(ChatHistory.created_at.desc(), ChatHistory.id.desc())\
-            .limit(limit)\
-            .all()
+        q = session.query(ChatHistory).filter_by(kb_id=kb_id)
+        if user and getattr(user, "role", "") != "admin":
+            q = q.filter_by(user_id=user.id)
+        chats = q.order_by(ChatHistory.created_at.desc(), ChatHistory.id.desc()).limit(limit).all()
 
         for c in chats:
             key = c.question.strip()
@@ -39,11 +38,10 @@ def collect_from_history(kb_id: str, limit: int = 100) -> list[dict]:
             })
 
         # 2. 从 EvaluationRecord 收集（直接上传的测试数据，去重）
-        records = session.query(EvaluationRecord)\
-            .filter_by(kb_id=kb_id)\
-            .order_by(EvaluationRecord.created_at.desc(), EvaluationRecord.id.desc())\
-            .limit(limit)\
-            .all()
+        q2 = session.query(EvaluationRecord).filter_by(kb_id=kb_id)
+        if user and getattr(user, "role", "") != "admin":
+            q2 = q2.filter_by(user_id=user.id)
+        records = q2.order_by(EvaluationRecord.created_at.desc(), EvaluationRecord.id.desc()).limit(limit).all()
 
         for r in records:
             key = r.question.strip()
@@ -89,16 +87,16 @@ def _extract_contexts(sources_raw) -> list[str]:
     return contexts
 
 
-def get_evaluated_scores(kb_id: str, limit: int = 100) -> list[dict]:
-    """获取已有评分的评估记录（去重：同问题只保留最新一条）"""
+def get_evaluated_scores(kb_id: str, limit: int = 100, user=None) -> list[dict]:
+    """获取已有评分的评估记录（去重：同问题只保留最新一条，按用户隔离）"""
     session = get_session()
     try:
-        records = session.query(EvaluationRecord)\
-            .filter_by(kb_id=kb_id)\
-            .filter(EvaluationRecord.faithfulness.isnot(None))\
-            .order_by(EvaluationRecord.created_at.desc(), EvaluationRecord.id.desc())\
-            .limit(limit * 3)\
-            .all()
+        q = session.query(EvaluationRecord).filter_by(kb_id=kb_id)\
+            .filter(EvaluationRecord.faithfulness.isnot(None))
+        if user and getattr(user, "role", "") != "admin":
+            q = q.filter_by(user_id=user.id)
+        records = q.order_by(EvaluationRecord.created_at.desc(), EvaluationRecord.id.desc())\
+            .limit(limit * 3).all()
 
         # 去重：同问题只保留最新一条
         seen = set()
@@ -131,14 +129,15 @@ def get_evaluated_scores(kb_id: str, limit: int = 100) -> list[dict]:
         session.close()
 
 
-def get_pending_records(kb_id: str) -> list[dict]:
-    """获取尚未评估的记录"""
+def get_pending_records(kb_id: str, user=None) -> list[dict]:
+    """获取尚未评估的记录（按用户隔离）"""
     session = get_session()
     try:
-        records = session.query(EvaluationRecord)\
-            .filter_by(kb_id=kb_id)\
-            .filter(EvaluationRecord.faithfulness == None)\
-            .all()
+        q = session.query(EvaluationRecord).filter_by(kb_id=kb_id)\
+            .filter(EvaluationRecord.faithfulness == None)
+        if user and getattr(user, "role", "") != "admin":
+            q = q.filter_by(user_id=user.id)
+        records = q.all()
 
         return [
             {
@@ -154,16 +153,16 @@ def get_pending_records(kb_id: str) -> list[dict]:
         session.close()
 
 
-def get_scored_details(kb_id: str, limit: int = 50) -> list[dict]:
-    """获取已有评分的评估详情（含评估推理和复审推理）"""
+def get_scored_details(kb_id: str, limit: int = 50, user=None) -> list[dict]:
+    """获取已有评分的评估详情（含评估推理和复审推理，按用户隔离）"""
     session = get_session()
     try:
-        records = session.query(EvaluationRecord)\
-            .filter_by(kb_id=kb_id)\
-            .filter(EvaluationRecord.faithfulness.isnot(None))\
-            .order_by(EvaluationRecord.created_at.desc(), EvaluationRecord.id.desc())\
-            .limit(limit)\
-            .all()
+        q = session.query(EvaluationRecord).filter_by(kb_id=kb_id)\
+            .filter(EvaluationRecord.faithfulness.isnot(None))
+        if user and getattr(user, "role", "") != "admin":
+            q = q.filter_by(user_id=user.id)
+        records = q.order_by(EvaluationRecord.created_at.desc(), EvaluationRecord.id.desc())\
+            .limit(limit).all()
 
         results = []
         for r in records:
@@ -190,13 +189,14 @@ def get_scored_details(kb_id: str, limit: int = 50) -> list[dict]:
         session.close()
 
 
-def clear_evaluation_records(kb_id: str) -> int:
-    """清空指定知识库的所有评估记录"""
+def clear_evaluation_records(kb_id: str, user=None) -> int:
+    """清空指定知识库的评估记录（admin 清所有，普通用户只清自己的）"""
     session = get_session()
     try:
-        count = session.query(EvaluationRecord)\
-            .filter_by(kb_id=kb_id)\
-            .delete()
+        q = session.query(EvaluationRecord).filter_by(kb_id=kb_id)
+        if user and getattr(user, "role", "") != "admin":
+            q = q.filter_by(user_id=user.id)
+        count = q.delete()
         session.commit()
         print(f"[Collector] 已清空 kb={kb_id} 的 {count} 条评估记录")
         return count

@@ -65,6 +65,7 @@ class Document(Base):
     status = Column(String(20), default="processing")  # processing | ready | error
     chunk_count = Column(Integer, default=0)
     error_message = Column(Text, nullable=True)
+    tags = Column(String(500), default="")  # 权限标签，逗号分隔（覆盖 KB 级标签）
     created_at = Column(String(32), default=now_str)
 
     kb = relationship("KnowledgeBase", back_populates="documents")
@@ -80,6 +81,7 @@ class ChatHistory(Base):
     id = Column(String(32), primary_key=True, default=gen_id)
     kb_id = Column(String(32), ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=False, index=True)
     session_id = Column(String(32), nullable=False, index=True, default=gen_id)
+    user_id = Column(String(32), nullable=True, default="")  # 问答用户，用于按用户隔离
     question = Column(Text, nullable=False)
     answer = Column(Text, nullable=False)
     sources = Column(Text, default="[]")  # JSON 字符串: [{"doc_name": "...", "score": 0.9, ...}]
@@ -95,6 +97,7 @@ class EvaluationRecord(Base):
 
     id = Column(String(32), primary_key=True, default=gen_id)
     kb_id = Column(String(32), ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(String(32), nullable=True, default="")  # 问答用户，用于按用户隔离
     question = Column(Text, nullable=False)
     answer = Column(Text, nullable=False)
     contexts = Column(Text, default="[]")  # JSON 字符串: 检索到的文档片段列表
@@ -128,6 +131,18 @@ class User(Base):
     role = Column(String(20), nullable=False, default="user")  # 'admin' | 'user'
     tags = Column(String(500), default="")  # 权限标签，逗号分隔
     is_active = Column(Integer, default=1)   # 0=禁用, 1=启用
+    created_at = Column(String(32), default=now_str)
+
+
+# ═══════════════════════════════════════════════════════════
+# 标签目录（统一管理所有可用标签）
+# ═══════════════════════════════════════════════════════════
+
+class Tag(Base):
+    __tablename__ = "tags"
+
+    id = Column(String(32), primary_key=True, default=gen_id)
+    name = Column(String(100), nullable=False, unique=True)
     created_at = Column(String(32), default=now_str)
 
 
@@ -208,6 +223,49 @@ def init_db():
     except Exception:
         pass
 
+    # 兼容旧表：添加 user_id 列（聊天记录和评估记录用户隔离）
+    try:
+        engine = get_engine()
+        with engine.connect() as conn:
+            for table_name in ["chat_history", "evaluation_records"]:
+                try:
+                    conn.execute(text(
+                        f"ALTER TABLE {table_name} ADD COLUMN user_id VARCHAR(32) DEFAULT ''"
+                    ))
+                    conn.commit()
+                except Exception:
+                    pass  # 列已存在则忽略
+    except Exception:
+        pass
+
+    # 兼容旧表：添加 users.tags 列（用户权限标签）
+    try:
+        engine = get_engine()
+        with engine.connect() as conn:
+            try:
+                conn.execute(text(
+                    "ALTER TABLE users ADD COLUMN tags VARCHAR(500) DEFAULT ''"
+                ))
+                conn.commit()
+            except Exception:
+                pass  # 列已存在则忽略
+    except Exception:
+        pass
+
+    # 兼容旧表：添加 tags 列（文档权限标签）
+    try:
+        engine = get_engine()
+        with engine.connect() as conn:
+            try:
+                conn.execute(text(
+                    "ALTER TABLE documents ADD COLUMN tags VARCHAR(500) DEFAULT ''"
+                ))
+                conn.commit()
+            except Exception:
+                pass  # 列已存在则忽略
+    except Exception:
+        pass
+
     # 创建默认管理员（首次启动）
     try:
         from core.security import hash_password
@@ -228,5 +286,24 @@ def init_db():
         session.close()
     except Exception as e:
         print(f"[MySQL] 默认管理员创建失败: {e}")
+
+    # 创建默认标签（首次启动）
+    try:
+        session = get_session()
+        # 清理废弃的"公开"标签（无标签即公开，不需要单独的"公开"标签）
+        old_tag = session.query(Tag).filter_by(name="公开").first()
+        if old_tag:
+            session.delete(old_tag)
+            session.commit()
+            print("[MySQL] 已移除废弃的'公开'标签（无标签即公开）")
+        default_tags = ["技术部", "产品部", "HR", "内部", "机密"]
+        for tag_name in default_tags:
+            existing = session.query(Tag).filter_by(name=tag_name).first()
+            if not existing:
+                session.add(Tag(id=gen_id(), name=tag_name))
+        session.commit()
+        session.close()
+    except Exception as e:
+        print(f"[MySQL] 默认标签创建失败: {e}")
 
     print("[MySQL] 数据库和表已初始化")

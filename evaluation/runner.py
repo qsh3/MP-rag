@@ -345,12 +345,13 @@ def review_single(question: str, answer: str, contexts: list[str],
     }
 
 
-def run_review(kb_id: str, max_samples: int = 10) -> dict:
-    """对已评估但未复审的记录进行批量复审
+def run_review(kb_id: str, max_samples: int = 10, user=None) -> dict:
+    """对已评估但未复审的记录进行批量复审（按用户隔离）
 
     Args:
         kb_id: 知识库 ID
         max_samples: 最大复审样本数
+        user: 当前用户（非 admin 只看自己的数据）
 
     Returns:
         {"kb_id": ..., "reviewed_count": N, "metrics": [...], "review": {...}}
@@ -358,11 +359,12 @@ def run_review(kb_id: str, max_samples: int = 10) -> dict:
     session = get_session()
     try:
         # 加载已评估但未复审的记录（reviewed=0，faithfulness 不为 NULL）
-        records = session.query(EvaluationRecord)\
-            .filter_by(kb_id=kb_id)\
+        q = session.query(EvaluationRecord).filter_by(kb_id=kb_id)\
             .filter(EvaluationRecord.faithfulness.isnot(None))\
-            .filter(EvaluationRecord.reviewed == 0)\
-            .all()
+            .filter(EvaluationRecord.reviewed == 0)
+        if user and getattr(user, "role", "") != "admin":
+            q = q.filter_by(user_id=user.id)
+        records = q.all()
 
         if not records:
             print("[Review] 没有待复审的记录（所有已评估记录均已复审或不可复审）")
@@ -427,7 +429,7 @@ def run_review(kb_id: str, max_samples: int = 10) -> dict:
         print(f"[Review] 复审完成: {len(results_by_id)} 条，耗时 {total_elapsed:.1f}s")
 
         # 汇总复审后指标
-        all_scores = _load_existing_scores(kb_id)
+        all_scores = _load_existing_scores(kb_id, user=user)
         eval_metrics = _aggregate_metrics(all_scores)
 
         review_summary = None
@@ -491,13 +493,14 @@ def _save_review_results(records: list, results: dict):
 
 
 def run_ragas_evaluation(kb_id: str, test_questions: list[str] = None,
-                         max_samples: int = 10) -> dict:
-    """运行 RAG 评估（增量：已有评分的跳过）
+                         max_samples: int = 10, user=None) -> dict:
+    """运行 RAG 评估（增量：已有评分的跳过，按用户隔离）
 
     Args:
         kb_id: 知识库 ID
         test_questions: 可选指定测试问题
         max_samples: 新评估的最大样本数
+        user: 当前用户（非 admin 只看自己的数据）
 
     Returns:
         {"kb_id": ..., "sample_count": N, "metrics": [...], "new_evaluated": N}
@@ -505,17 +508,18 @@ def run_ragas_evaluation(kb_id: str, test_questions: list[str] = None,
     if test_questions:
         session = get_session()
         try:
-            records = session.query(EvaluationRecord)\
-                .filter_by(kb_id=kb_id)\
-                .filter(EvaluationRecord.question.in_(test_questions))\
-                .all()
+            q = session.query(EvaluationRecord).filter_by(kb_id=kb_id)\
+                .filter(EvaluationRecord.question.in_(test_questions))
+            if user and getattr(user, "role", "") != "admin":
+                q = q.filter_by(user_id=user.id)
+            records = q.all()
             dataset = [{"question": r.question, "answer": r.answer,
                         "contexts": _parse_json(r.contexts),
                         "ground_truth": r.ground_truth or ""} for r in records]
         finally:
             session.close()
     else:
-        dataset = collect_from_history(kb_id)
+        dataset = collect_from_history(kb_id, user=user)
 
     print(f"[Eval] KB={kb_id}: 采集到 {len(dataset)} 条待评估数据", flush=True)
     if not dataset:
@@ -528,7 +532,7 @@ def run_ragas_evaluation(kb_id: str, test_questions: list[str] = None,
         }
 
     # ── 增量评估：跳过已有评分的条目 ──
-    evaluated_questions = _get_evaluated_questions(kb_id)
+    evaluated_questions = _get_evaluated_questions(kb_id, user=user)
     new_items = []
     for i, d in enumerate(dataset):
         key = d["question"].strip()
@@ -578,7 +582,7 @@ def run_ragas_evaluation(kb_id: str, test_questions: list[str] = None,
         print(f"[Eval] 已评分: {len(evaluated_questions)} 条, 无答案: {sum(1 for d in dataset if not d.get('answer', '').strip())} 条", flush=True)
 
     # ── 汇总所有评分（已有 + 新增） ──
-    all_scores = _load_existing_scores(kb_id)
+    all_scores = _load_existing_scores(kb_id, user=user)
     eval_metrics = _aggregate_metrics(all_scores)
 
     # 从 all_scores 计算出 sample_count
@@ -600,27 +604,29 @@ def run_ragas_evaluation(kb_id: str, test_questions: list[str] = None,
     }
 
 
-def _get_evaluated_questions(kb_id: str) -> set:
-    """获取已有评分的题目集合（用于增量跳过）"""
+def _get_evaluated_questions(kb_id: str, user=None) -> set:
+    """获取已有评分的题目集合（用于增量跳过，按用户隔离）"""
     session = get_session()
     try:
-        records = session.query(EvaluationRecord.question)\
-            .filter_by(kb_id=kb_id)\
-            .filter(EvaluationRecord.faithfulness.isnot(None))\
-            .all()
+        q = session.query(EvaluationRecord.question).filter_by(kb_id=kb_id)\
+            .filter(EvaluationRecord.faithfulness.isnot(None))
+        if user and getattr(user, "role", "") != "admin":
+            q = q.filter_by(user_id=user.id)
+        records = q.all()
         return {r.question.strip() for r in records if r.question}
     finally:
         session.close()
 
 
-def _load_existing_scores(kb_id: str) -> dict:
-    """从数据库加载已有评分 {metric_name: [score, ...]}（含复审分数）"""
+def _load_existing_scores(kb_id: str, user=None) -> dict:
+    """从数据库加载已有评分 {metric_name: [score, ...]}（含复审分数，按用户隔离）"""
     session = get_session()
     try:
-        records = session.query(EvaluationRecord)\
-            .filter_by(kb_id=kb_id)\
-            .filter(EvaluationRecord.faithfulness.isnot(None))\
-            .all()
+        q = session.query(EvaluationRecord).filter_by(kb_id=kb_id)\
+            .filter(EvaluationRecord.faithfulness.isnot(None))
+        if user and getattr(user, "role", "") != "admin":
+            q = q.filter_by(user_id=user.id)
+        records = q.all()
         scores = {
             "faithfulness": [], "answer_relevancy": [], "context_precision": [],
             "review_faithfulness": [], "review_answer_relevancy": [], "review_context_precision": [],

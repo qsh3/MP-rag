@@ -26,9 +26,13 @@
                 <template #icon><MessageOutlined /></template>
                 问答
               </a-button>
-              <a-button size="small" block @click.stop="$router.push(`/eval/${kb.id}`)">
+              <a-button v-if="authStore.isAdmin" size="small" block @click.stop="$router.push(`/eval/${kb.id}`)">
                 <template #icon><FundOutlined /></template>
                 评估
+              </a-button>
+              <a-button v-if="authStore.isAdmin" size="small" block @click.stop="openEdit(kb)">
+                <template #icon><EditOutlined /></template>
+                编辑
               </a-button>
               <a-button size="small" danger block @click.stop="handleDelete(kb)">
                 <template #icon><DeleteOutlined /></template>
@@ -46,13 +50,14 @@
       />
     </a-spin>
 
-    <!-- 新建知识库弹窗 -->
+    <!-- 新建/编辑知识库弹窗 -->
     <a-modal
       v-model:open="showCreate"
-      title="新建知识库"
+      :title="editingKB ? '编辑知识库' : '新建知识库'"
       @ok="handleCreate"
+      @cancel="editingKB = null"
       :confirmLoading="creating"
-      okText="确认创建"
+      :okText="editingKB ? '保存' : '确认创建'"
       cancelText="取消"
     >
       <a-form :model="form" layout="vertical" style="margin-top: 16px;">
@@ -81,20 +86,23 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import {
-  PlusOutlined,
+  PlusOutlined, EditOutlined,
   MessageOutlined,
   FundOutlined,
   DeleteOutlined,
 } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import { useAppStore } from '../stores/appStore'
-import { createKB, deleteKB } from '../api/kb'
+import { useAuthStore } from '../stores/authStore'
+import { createKB, updateKB, deleteKB } from '../api/kb'
 import type { KnowledgeBase } from '../types'
 
 const store = useAppStore()
+const authStore = useAuthStore()
 const showCreate = ref(false)
 const creating = ref(false)
 const form = ref({ name: '', description: '' })
+const editingKB = ref<KnowledgeBase | null>(null)
 
 onMounted(async () => {
   await store.fetchKBs()
@@ -107,16 +115,28 @@ async function handleCreate() {
   }
   creating.value = true
   try {
-    await createKB(form.value.name.trim(), form.value.description.trim())
-    message.success('知识库创建成功')
+    if (editingKB.value) {
+      await updateKB(editingKB.value.id, form.value.name.trim(), form.value.description.trim())
+      message.success('知识库已更新')
+    } else {
+      await createKB(form.value.name.trim(), form.value.description.trim())
+      message.success('知识库创建成功')
+    }
     showCreate.value = false
+    editingKB.value = null
     form.value = { name: '', description: '' }
     await store.fetchKBs()
   } catch (e: any) {
-    message.error(e.response?.data?.detail || '创建失败，请检查后端服务')
+    message.error(e.response?.data?.detail || '操作失败')
   } finally {
     creating.value = false
   }
+}
+
+function openEdit(kb: KnowledgeBase) {
+  editingKB.value = kb
+  form.value = { name: kb.name, description: kb.description }
+  showCreate.value = true
 }
 
 async function handleDelete(kb: KnowledgeBase) {

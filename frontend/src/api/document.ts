@@ -1,9 +1,10 @@
 import api from './client'
 import type { Document } from '../types'
 
-export async function uploadDocs(kbId: string, files: File[]): Promise<Document> {
+export async function uploadDocs(kbId: string, files: File[], tags?: string): Promise<Document> {
   const formData = new FormData()
   files.forEach(f => formData.append('files', f))
+  if (tags) formData.append('tags', tags)
   const { data } = await api.post(`/kb/${kbId}/docs`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })

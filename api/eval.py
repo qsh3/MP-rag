@@ -19,7 +19,7 @@ def run_evaluation(req: EvalRunRequest, current_user=Depends(get_current_user)):
     if not kb:
         raise HTTPException(status_code=404, detail="知识库不存在")
 
-    result = run_ragas_evaluation(req.kb_id, req.test_questions, max_samples=req.max_samples)
+    result = run_ragas_evaluation(req.kb_id, req.test_questions, max_samples=req.max_samples, user=current_user)
 
     if result.get("error"):
         return EvalReportResponse(
@@ -51,7 +51,7 @@ def run_review_endpoint(req: EvalReviewRequest, current_user=Depends(get_current
     if not kb:
         raise HTTPException(status_code=404, detail="知识库不存在")
 
-    result = run_review(req.kb_id, max_samples=req.max_samples)
+    result = run_review(req.kb_id, max_samples=req.max_samples, user=current_user)
 
     if result.get("error"):
         raise HTTPException(status_code=400, detail=result["error"])
@@ -97,7 +97,7 @@ def get_report(kb_id: str, current_user=Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="知识库不存在")
 
     # 从数据库读取已有评分
-    scored = get_evaluated_scores(kb_id, limit=100)
+    scored = get_evaluated_scores(kb_id, limit=100, user=current_user)
 
     if not scored:
         return EvalReportResponse(
@@ -172,7 +172,7 @@ def get_eval_data(kb_id: str, limit: int = Query(50, ge=1, le=200), current_user
     if not kb:
         raise HTTPException(status_code=404, detail="知识库不存在")
 
-    data = collect_from_history(kb_id, limit)
+    data = collect_from_history(kb_id, limit, user=current_user)
     return {"total": len(data), "items": data}
 
 
@@ -183,7 +183,7 @@ def get_eval_details(kb_id: str, limit: int = Query(20, ge=1, le=100), current_u
     if not kb:
         raise HTTPException(status_code=404, detail="知识库不存在")
 
-    data = get_scored_details(kb_id, limit)
+    data = get_scored_details(kb_id, limit, user=current_user)
     return {"total": len(data), "items": data}
 
 
@@ -194,5 +194,5 @@ def clear_eval_records(kb_id: str, current_user=Depends(get_current_user)):
     if not kb:
         raise HTTPException(status_code=404, detail="知识库不存在")
 
-    count = clear_evaluation_records(kb_id)
+    count = clear_evaluation_records(kb_id, user=current_user)
     return {"kb_id": kb_id, "deleted": count, "message": f"已清空 {count} 条评估记录"}

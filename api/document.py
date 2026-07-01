@@ -5,18 +5,20 @@ import os
 import asyncio
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
-from models.schemas import DocResponse, DocListResponse
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
+from models.schemas import DocResponse, DocListResponse, UpdateDocRequest
 from services import kb_service
 from rag_client import get_client as get_rag_client
 from config import UPLOAD_DIR
-from api.dependencies import get_current_user
+from api.dependencies import get_current_user, require_admin
 
 router = APIRouter(prefix="/api/v1/kb/{kb_id}/docs", tags=["文档"])
 
 
 @router.post("")
-async def upload_documents(kb_id: str, files: list[UploadFile] = File(...), current_user=Depends(get_current_user)):
+async def upload_documents(kb_id: str, files: list[UploadFile] = File(...),
+                           tags: str = Form(""),
+                           current_user=Depends(get_current_user)):
     """上传文档到知识库（支持多文件）"""
     kb = kb_service.get_kb(kb_id)
     if not kb:
@@ -40,7 +42,8 @@ async def upload_documents(kb_id: str, files: list[UploadFile] = File(...), curr
 
         # 创建 MySQL 记录
         doc = kb_service.add_document(
-            kb_id, f.filename, file_type, file_size, str(file_path)
+            kb_id, f.filename, file_type, file_size, str(file_path),
+            tags=tags,
         )
 
         # 上传到 RAGFlow（wait=False 不阻塞，后台解析）
@@ -96,7 +99,7 @@ def list_documents(kb_id: str, current_user=Depends(get_current_user)):
     if not kb:
         raise HTTPException(status_code=404, detail="知识库不存在")
 
-    docs = kb_service.list_documents(kb_id)
+    docs = kb_service.list_documents(kb_id, user=current_user)
     return DocListResponse(total=len(docs), items=[DocResponse(**d) for d in docs])
 
 
@@ -107,6 +110,19 @@ def get_document(kb_id: str, doc_id: str, current_user=Depends(get_current_user)
     if not doc or doc["kb_id"] != kb_id:
         raise HTTPException(status_code=404, detail="文档不存在")
     return DocResponse(**doc)
+
+
+@router.put("/{doc_id}", response_model=DocResponse)
+def update_document(kb_id: str, doc_id: str, req: UpdateDocRequest,
+                    current_user=Depends(require_admin)):
+    """更新文档标签（admin 专属）"""
+    doc = kb_service.get_document(doc_id)
+    if not doc or doc["kb_id"] != kb_id:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    updated = kb_service.update_document_tags(doc_id, req.tags)
+    if not updated:
+        raise HTTPException(status_code=500, detail="更新失败")
+    return DocResponse(**updated)
 
 
 @router.delete("/{doc_id}")

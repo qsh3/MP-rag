@@ -1,6 +1,7 @@
 """
 认证 API — 注册 / 登录 / 当前用户
 """
+import traceback
 from fastapi import APIRouter, HTTPException, Depends
 
 from models.schemas import RegisterRequest, LoginRequest, TokenResponse, UserInfo
@@ -16,9 +17,14 @@ def register(req: RegisterRequest):
     """注册新用户（公开）"""
     try:
         user = create_user(req.username, req.password, role="user", tags=req.tags)
+        return login_response(user)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return login_response(user)
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"注册失败: {e}")
 
 
 @router.post("/login", response_model=TokenResponse)
