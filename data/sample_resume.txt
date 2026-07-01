@@ -18,8 +18,8 @@ Java, Spring Boot, MySQL, Redis, Git, Linux, Docker, HTML, CSS, JavaScript
 
 项目经历：
 
-企业OA管理系统
-- 基于Spring Boot的企业内部管理系统
+OA管理系统
+- 基于Spring Boot的公司内部管理系统
 - 包含用户管理、审批流程、报表统计
 - 使用了Spring Boot + MySQL + Redis
 
