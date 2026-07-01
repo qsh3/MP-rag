@@ -159,6 +159,7 @@ class RegisterRequest(BaseModel):
     username: str = Field(..., min_length=2, max_length=50)
     password: str = Field(..., min_length=4, max_length=100)
     tags: str = Field("", max_length=500, description="权限标签，逗号分隔")
+    tag_pwd: str = Field("", max_length=100, description="标签授权密码（选择了标签时必填）")
 
 
 class LoginRequest(BaseModel):

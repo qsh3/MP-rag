@@ -14,7 +14,12 @@ router = APIRouter(prefix="/api/v1/auth", tags=["认证"])
 
 @router.post("/register", response_model=TokenResponse)
 def register(req: RegisterRequest):
-    """注册新用户（公开）"""
+    """注册新用户（公开）—— 选择了标签则需要验证授权密码"""
+    # 标签授权验证
+    if req.tags and req.tags.strip():
+        from config import TAG_AUTH_PASSWORD
+        if req.tag_pwd != TAG_AUTH_PASSWORD:
+            raise HTTPException(status_code=400, detail="标签授权密码错误，无法使用权限标签注册")
     try:
         user = create_user(req.username, req.password, role="user", tags=req.tags)
         return login_response(user)

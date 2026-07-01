@@ -60,6 +60,9 @@ JWT_SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRY_HOURS = int(os.getenv("JWT_EXPIRY_HOURS", "24"))
 
+# ── 标签授权密码（注册时选择标签需验证此密码）─────────────
+TAG_AUTH_PASSWORD = os.getenv("TAG_AUTH_PASSWORD", "123456")
+
 # ── 应用设置 ───────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parent
 DATA_DIR = PROJECT_ROOT / "data"

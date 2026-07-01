@@ -28,7 +28,7 @@
               <a-select
                 v-model:value="regForm.tagsList"
                 mode="multiple"
-                placeholder="选择权限标签（可选）"
+                placeholder="选择权限标签（可选，选标签需要授权密码）"
                 style="width: 100%;"
                 :options="tagOptions"
               />
@@ -40,6 +40,25 @@
         </a-tab-pane>
       </a-tabs>
     </a-card>
+
+    <!-- 标签授权密码弹窗 -->
+    <a-modal
+      v-model:open="tagPwdVisible"
+      title="标签授权验证"
+      @ok="confirmTagPwd"
+      okText="确认"
+      cancelText="取消"
+      :confirmLoading="loading"
+    >
+      <p style="margin-bottom: 12px; color: #666;">
+        你选择了权限标签，需要输入授权密码才能完成注册。
+      </p>
+      <a-input-password
+        v-model:value="tagPwd"
+        placeholder="请输入标签授权密码"
+        @pressEnter="confirmTagPwd"
+      />
+    </a-modal>
   </div>
 </template>
 
@@ -59,6 +78,8 @@ const loading = ref(false)
 const loginForm = ref({ username: '', password: '' })
 const regForm = ref({ username: '', password: '', tagsList: [] as string[] })
 const tagOptions = ref<{ label: string; value: string }[]>([])
+const tagPwdVisible = ref(false)
+const tagPwd = ref('')
 
 onMounted(async () => {
   if (authStore.isLoggedIn) {
@@ -84,10 +105,30 @@ async function handleLogin() {
 }
 
 async function handleRegister() {
+  // 如果选择了标签，弹出授权密码弹窗
+  if (regForm.value.tagsList.length > 0) {
+    tagPwd.value = ''
+    tagPwdVisible.value = true
+    return
+  }
+  // 没选标签直接注册
+  await doRegister('')
+}
+
+async function confirmTagPwd() {
+  if (!tagPwd.value) {
+    message.warning('请输入标签授权密码')
+    return
+  }
+  tagPwdVisible.value = false
+  await doRegister(tagPwd.value)
+}
+
+async function doRegister(tagPwd: string) {
   loading.value = true
   try {
     const tags = regForm.value.tagsList.join(',') || ''
-    const res = await apiRegister(regForm.value.username, regForm.value.password, tags)
+    const res = await apiRegister(regForm.value.username, regForm.value.password, tags, tagPwd)
     console.log('[注册] API 返回:', res)
     authStore.setAuth(res.access_token, res.user)
     console.log('[注册] setAuth 完成，token 已设置')

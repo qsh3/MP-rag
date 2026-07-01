@@ -6,8 +6,8 @@ export async function login(username: string, password: string): Promise<TokenRe
   return data
 }
 
-export async function register(username: string, password: string, tags?: string): Promise<TokenResponse> {
-  const { data } = await api.post('/auth/register', { username, password, tags: tags || '' })
+export async function register(username: string, password: string, tags?: string, tag_pwd?: string): Promise<TokenResponse> {
+  const { data } = await api.post('/auth/register', { username, password, tags: tags || '', tag_pwd: tag_pwd || '' })
   return data
 }
 
