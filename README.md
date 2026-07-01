@@ -37,17 +37,31 @@
 
 ### 界面预览
 
+#### 管理员视角
+
 | 知识库管理 | 文档管理 |
 |------------|----------|
-| ![知识库管理](docs/images/dashboard.png) | ![知识库页面](docs/images/knowledge-base.png) |
+| ![知识库管理](docs/images/dashboard.png) | ![文档管理](docs/images/knowledge-base.png) |
 
-| 智能问答 | RAGAS 评估报告 |
-|---------|---------------|
-| ![智能问答](docs/images/qa-chat.png) | ![评估报告](docs/images/eval-report.png) |
+| 智能问答 | 用户管理 |
+|---------|---------|
+| ![智能问答](docs/images/qa-chat.png) | ![用户管理](docs/images/admin-users.png) |
 
-| 评估推理详情 | RAGFlow 文档引擎 |
-|------------|-----------------|
-| ![评估推理详情](docs/images/eval-detail.png) | ![RAGFlow控制台](docs/images/ragflow-console.png) |
+| RAGAS 评估报告 | 评估推理详情 |
+|---------------|-------------|
+| ![评估报告](docs/images/eval-report.png) | ![评估详情](docs/images/eval-detail.png) |
+
+#### 普通用户视角
+
+| 知识库管理（无编辑/删除按钮） | 文档管理（无删除/标签编辑） | 智能问答 |
+|--------------------------|--------------------------|---------|
+| ![用户知识库](docs/images/user-dashboard.png) | ![用户文档](docs/images/user-knowledge-base.png) | ![用户问答](docs/images/user-qa.png) |
+
+#### 标签权限效果
+
+| 标签用户文档列表 | 标签用户问答（仅检索权限内文档） |
+|----------------|------------------------------|
+| ![标签用户KB](docs/images/tag-user-kb.png) | ![标签用户QA](docs/images/tag-user-qa.png) |
 
 ---
 
